@@ -1,0 +1,251 @@
+#!/usr/bin/perl
+
+# monitor-external
+#
+# 2008/08/21 (mickeyw) First version
+#
+# This script is to be used in combination with the monitor application
+# It is responsible for external functions such as mailing
+
+use Sys::Hostname;
+use File::Basename;
+
+my $mail_recipients = "";
+my $mail_not_restarted_recipients = "";
+my $mail_sender = "";
+my $sendmail_path = "";
+my $crashes_allowed = "";
+
+# Get function to execute
+my @args;
+if (@ARGV == 0) {
+    print_usage();
+} else {
+    @args = @ARGV[0 .. @ARGV - 1];
+}
+
+# Read config
+read_config();
+
+# Execute function according to argv
+if ($args[0] eq "mail") {
+    mail();
+} elsif ($args[0] eq "status") {
+    status();
+} elsif ($args[0] eq "rotatelog") {
+    rotatelog();
+} else {
+    print_usage();
+}
+
+
+# SUBROUTINES #
+
+# Read configuration file monitor-external.cfg
+sub read_config {
+    open(CONFIG, dirname($0) . "/monitor-external.cfg");
+    my $element = "";
+
+    while (<CONFIG>) {
+        chomp($_);
+        if ($_ =~ m/^#/) {
+            next;
+        } elsif ($_ eq "") {
+            next;
+        } elsif ($_ eq "\n") {
+            next;
+        } elsif ($_ =~ m/^MAIL_RECIPIENTS/) {
+            @element = split(/\s=\s/, $_);
+            $mail_recipients = $element[1];
+        } elsif ($_ =~ m/^MAIL_NOT_RESTARTED_RECIPIENTS/) {
+            @element = split(/\s=\s/, $_);
+            $mail_not_restarted_recipients = $element[1];
+        } elsif ($_ =~ m/^MAIL_SENDER/) {
+            @element = split(/\s=\s/, $_);
+            $mail_sender = $element[1];
+        } elsif ($_ =~ m/^SENDMAIL_PATH/) {
+            @element = split(/\s=\s/, $_);
+            $sendmail_path = $element[1];
+        } elsif ($_ =~ m/^CRASHES_ALLOWED/) {
+            @element = split(/\s=\s/, $_);
+            $crashes_allowed = $element[1];
+        } else {
+            print "Invalid value '$_' specified in config file. Exiting.\n";
+            exit;
+        }
+    }
+
+    close(CONFIG);
+}
+
+# Print usage instructions
+sub print_usage {
+    print "Usage: monitor-external <fuction>\n";
+    print "       mail -t=<restart, overcrashes, notrestarted> -p=<PID file name> -i=<PID # of crashed process> -cw=<Crash window> -ct=<# of times crashed in crash window>\n";
+    print "       status -s=<OK, WARNING, CRITICAL> -m=<Message>\n";
+    print "       rotatelog -l=<Died log file name>\n";
+    exit;
+}
+
+# Mail function
+sub mail {
+    my $type;
+    my $pid_file;
+    my $pid_num;
+    my $crash_window;
+    my $crash_times;
+    
+    foreach $arg (@args) {
+        my @params = split("=", $arg);
+        if ($params[0] eq "mail") {
+            next;
+        } elsif ($params[0] eq "-t") {
+            $type = $params[1];
+        } elsif ($params[0] eq "-p") {
+            $pid_file = $params[1];
+        } elsif ($params[0] eq "-i") {
+            $pid_num = $params[1];
+        } elsif ($params[0] eq "-cw") {
+            $crash_window = $params[1];
+        } elsif ($params[0] eq "-ct") {
+            $crash_times = $params[1];
+        } else {
+            print_usage();
+        }
+    }
+
+    if ($type eq "" || $pid_file eq "" || $pid_num eq "" || $crash_window eq "" || $crash_times eq "") {
+        print_usage();
+    }
+
+    my $subject = "[Blaze Server][Monitor] ";
+    my $status = "";
+    my $summary = "";
+    my $content = "";
+
+    if ($type eq "restart") {
+        $subject = $subject . "Blaze server restarted on " . hostname();
+        $status = "WARNING";
+        $summary = "Blaze server on " . hostname() . " has been restarted on " . localtime() . " due to a crash.";
+        $content = $summary . "\n\n";
+        $content = $content . "Server:\n";
+        $content = $content . hostname() . "\n\n";
+        $content = $content . "Instance:\n";
+        $content = $content . $mail_sender . "\n\n";
+        $content = $content . "Time:\n";
+        $content = $content . localtime() . "\n\n";
+        $content = $content . "Cause:\n";
+        $content = $content . "The Blaze server associated with the Monitor PID file '$pid_file' has died.\n";
+        $content = $content . "The process number of the terminated server is '$pid_num'.\n\n";
+        $content = $content . "Additional Information:\n";
+        $content = $content . "The server has crashed $crash_times time(s) in the past $crash_window minute(s).";
+    } elsif ($type eq "overcrashes") {
+        $subject = $subject . "Blaze server crashed too many times on " . hostname();
+        $status = "WARNING";
+        $summary = $subject . "Blaze server has crashed $crash_times time(s) in the past $crash_window minute(s) on " . hostname();
+        $content = $summary . "\n\n";
+        $content = $content . "Server:\n";
+        $content = $content . hostname() . "\n\n";
+        $content = $content . "Instance:\n";
+        $content = $content . $mail_sender . "\n\n";
+        $content = $content . "Time:\n";
+        $content = $content . localtime() . "\n\n";
+        $content = $content . "Additional Information:\n";
+        $content = $content . "The most recent restart occurred in the server associated with the Monitor PID file '$pid_file', process number '$pid_num'.\n";
+        $content = $content . "Monitor has restarted the server this time, but will not restart the server again if Blaze crashes one more time within the specified interval. However, in the case that this happens, a high priority e-mail alert will be sent out.";
+    } elsif ($type eq "notrestarted") {
+        $subject = $subject . "Blaze server crashed but did not get restarted " . hostname();
+        $status = "CRITICAL";
+        $summary = "Blaze server has crashed but did not get restarted because too many crashes had occurred in the recent timeframe.";
+        $content = $summary . "\n\n";
+        $content = $content . "Server:\n";
+        $content = $content . hostname() . "\n\n";
+        $content = $content . "Instance:\n";
+        $content = $content . $mail_sender . "\n\n";
+        $content = $content . "Time:\n";
+        $content = $content . localtime() . "\n\n";
+        $content = $content . "Additional Information:\n";
+        $content = $content . "The most recent restart occurred in the server associated with the Monitor PID file '$pid_file', process number '$pid_num'.\n";
+        $content = $content . "The server has crashed $crash_times time(s) in the past $crash_window minute(s).";
+    } else {
+        print_usage();
+    }
+
+    open(MAIL, "| $sendmail_path -oi -t");
+    print MAIL "From: $mail_sender\n";
+    if ($type eq "notrestarted") {
+        print MAIL "To: $mail_not_restarted_recipients\n";
+    } else {
+        print MAIL "To: $mail_recipients\n";
+    }
+    print MAIL "Subject: $subject\n";
+    if ($type eq "notrestarted") {
+        print MAIL "X-Priority: 1 (Highest)\nX-MSMail-Priority: High\n";
+    }
+    print MAIL "\n";
+    print MAIL $content;
+    close(MAIL);
+
+    system("$0 status -s=$status -m=\"$summary\"");
+}
+
+sub status {
+    my $status = "";
+    my $message = "";
+
+    foreach $arg (@args) {
+        my @params = split("=", $arg);
+        if ($params[0] eq "status") {
+            next;
+        } elsif ($params[0] eq "-s") {
+            $status = $params[1];
+        } elsif ($params[0] eq "-m") {
+            $message = $params[1];
+        } else {
+            print_usage();
+        }
+    }
+
+    if ($status eq "") {
+        print_usage();
+    }
+
+    if ($status eq "OK") {
+        my $etc_dir = dirname($0) . "/../etc";
+        open(VERSION, "cd $etc_dir && export LD_LIBRARY_PATH=. && ../bin/blazeserver -v |");
+        $message = <VERSION>;
+        close(VERSION);
+    }
+
+    my $status_file = dirname($0) . "/../log/status.log";
+    open(FILE, "> $status_file");
+    print FILE "$status: $message";
+    close(FILE);
+}
+
+sub rotatelog {
+    my $log_file = "";
+
+    foreach $arg (@args) {
+        my @params = split("=", $arg);
+        if ($params[0] eq "rotatelog") {
+            next;
+        } elsif ($params[0] eq "-l") {
+            $log_file = $params[1];
+        } else {
+            print_usage();
+        }
+    }
+
+    if ($log_file eq "") {
+        print_usage();
+    }
+
+    ($sec, $min, $hour, $day, $month, $year) = localtime(time);
+    my $timestamp = sprintf("%4d%02d%02d_%02d%02d%02d", $year + 1900, $month + 1, $day, $hour, $min, $sec);
+
+    my $new_log_file = $log_file;
+    $new_log_file =~ s/\.log//;
+
+    system("cp " . $log_file . " " . $new_log_file . "_" . $timestamp . ".log.died");
+}

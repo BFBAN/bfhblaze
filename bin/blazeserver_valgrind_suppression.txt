@@ -1,0 +1,159 @@
+# we define a few error and leak suppressions rules for known issues...
+# see http://valgrind.org/docs/manual/manual-core.html#manual-core.suppress
+
+
+{
+  Blaze:ld-2.5.so:_dl_relocate_object
+  Memcheck:Cond
+  obj:*ld-2.5.so
+}
+{
+   MySql DLL Leak 1
+   Memcheck:Leak
+   fun:malloc
+   fun:_dl_map_object_from_fd
+   fun:_dl_map_object
+   fun:openaux
+   fun:_dl_catch_error
+   fun:_dl_map_object_deps
+   fun:dl_open_worker
+   fun:_dl_catch_error
+   fun:_dl_open
+   fun:dlopen_doit
+   fun:_dl_catch_error
+   fun:_dlerror_run
+   fun:dlopen@@GLIBC_2.2.5
+   fun:_ZN5Blaze7DynLoad11loadLibraryEPKcj
+   fun:_ZN5Blaze11DbScheduler12createDriverERKNS_8DbConfigE
+   fun:_ZN5Blaze11DbScheduler11addDbConfigEPKcRKNS_13ConfigMapBaseE
+   fun:_ZN5Blaze11DbScheduler14initFromConfigERKNS_13ConfigMapBaseES3_
+   fun:_ZN5Blaze10Controller19controllerBootstrapEv
+   fun:_ZN5Blaze13MethodCallJobINS_10ControllerENS_3JobEE7executeEv
+   fun:_ZN5Blaze5Fiber3runEv
+   fun:_ZN5Blaze5Fiber7RunFuncEv
+}
+{
+   MYSQL DLL Leak 2
+   Memcheck:Leak
+   fun:calloc
+   obj:*
+   obj:*
+   obj:*
+   obj:*
+   obj:*
+   obj:*
+   obj:*
+   obj:*
+   obj:*
+   obj:*
+   fun:call_init
+   fun:_dl_init
+   fun:dl_open_worker
+   fun:_dl_catch_error
+   fun:_dl_open
+   fun:dlopen_doit
+   fun:_dl_catch_error
+   fun:_dlerror_run
+   fun:dlopen@@GLIBC_2.2.5
+   fun:_ZN5Blaze7DynLoad11loadLibraryEPKcj
+   fun:_ZN5Blaze11DbScheduler12createDriverERKNS_8DbConfigE
+   fun:_ZN5Blaze11DbScheduler11addDbConfigEPKcRKNS_13ConfigMapBaseE
+   fun:_ZN5Blaze11DbScheduler14initFromConfigERKNS_13ConfigMapBaseES3_
+}
+{
+   MySql DLL Leak 3
+   Memcheck:Leak
+   fun:calloc
+   fun:_dlerror_run
+   fun:dlclose
+   fun:_ZN5Blaze7DynLoad11freeLibraryEv
+   fun:_ZN5Blaze10DbConnPoolD1Ev
+   fun:_ZN5Blaze11DbSchedulerD0Ev
+   fun:_ZN5Blaze17ProcessControllerD1Ev
+   fun:main
+}
+{
+   MySql DLL compression 1
+   Memcheck:Cond
+   obj:/usr/lib64/libz.so.1.2.3
+   obj:/usr/lib64/libz.so.1.2.3
+   fun:deflate
+   fun:compress2
+   fun:my_compress_alloc
+   fun:my_compress
+   fun:net_real_write
+   fun:net_flush
+   fun:net_write_command
+   fun:cli_advanced_command
+   fun:mysql_stmt_prepare
+   fun:_ZN5Blaze22MySqlPreparedStatement4openEv
+   fun:_ZN5Blaze22MySqlPreparedStatement7executeEPPNS_8DbResultE
+   fun:_ZN5Blaze9MySqlConn28executePreparedStatementImplEPNS_17PreparedStatementEPPNS_8DbResultE
+   fun:_ZN5Blaze6DbConn30executePreparedStatementHelperEPNS_17PreparedStatementEPPNS_8DbResultENS_9TimeValueE
+   fun:_ZN5Blaze17RetMethodCall3JobINS_6DbConnENS_7DbErrorEPNS_17PreparedStatementEPPNS_8DbResultENS_9TimeValueENS_11DbScheduler13DbScheduleJobEE7executeEv
+   fun:_ZN5Blaze11DbScheduler10executeJobEPNS_3JobE
+   fun:_ZN5Blaze20ThreadPoolJobHandler6Worker3runEv
+   fun:_ZN5Blaze11BlazeThread3RunEPv
+   fun:_Z22RunnableObjectInternalPv
+   fun:start_thread
+   fun:clone
+}
+{
+   MySql DLL compression 2
+   Memcheck:Cond
+   obj:/usr/lib64/libz.so.1.2.3
+   obj:/usr/lib64/libz.so.1.2.3
+   fun:deflate
+   fun:compress2
+   fun:my_compress_alloc
+   fun:my_compress
+   fun:net_real_write
+   fun:net_flush
+   fun:net_write_command
+   fun:cli_advanced_command
+   obj:/usr/lib64/mysql/libmysqlclient_r.so.15.0.0
+   fun:cli_stmt_execute
+   fun:mysql_stmt_execute
+   fun:_ZN5Blaze22MySqlPreparedStatement7executeEPPNS_8DbResultE
+   fun:_ZN5Blaze9MySqlConn28executePreparedStatementImplEPNS_17PreparedStatementEPPNS_8DbResultE
+   fun:_ZN5Blaze6DbConn30executePreparedStatementHelperEPNS_17PreparedStatementEPPNS_8DbResultENS_9TimeValueE
+   fun:_ZN5Blaze17RetMethodCall3JobINS_6DbConnENS_7DbErrorEPNS_17PreparedStatementEPPNS_8DbResultENS_9TimeValueENS_11DbScheduler13DbScheduleJobEE7executeEv
+   fun:_ZN5Blaze11DbScheduler10executeJobEPNS_3JobE
+   fun:_ZN5Blaze20ThreadPoolJobHandler6Worker3runEv
+   fun:_ZN5Blaze11BlazeThread3RunEPv
+   fun:_Z22RunnableObjectInternalPv
+   fun:start_thread
+   fun:clone
+}
+{
+   SSL Cypher Leak
+   Memcheck:Leak
+   fun:malloc
+   fun:CRYPTO_malloc
+   fun:sk_new
+   fun:load_builtin_compressions
+   fun:SSL_COMP_get_compression_methods
+   fun:SSL_library_init
+   fun:_ZN5Blaze10SslContextC1Ev
+   fun:_ZN5Blaze17ProcessController10initializeEv
+   fun:main
+}
+{
+   SSL Encrypt Leak 
+   Memcheck:Value8
+   fun:DES_encrypt1
+}
+{
+   PThreads Leak
+   Memcheck:Leak
+   fun:malloc
+   fun:realloc
+   fun:pthread_create@@GLIBC_2.2.5
+   fun:_ZN2EA6Thread6Thread5BeginEPNS0_9IRunnableEPvPKNS0_16ThreadParametersEPFlS3_S4_E
+   fun:_ZN5Blaze11BlazeThread5startEv
+   fun:_ZN5Blaze6Logger10initializeENS0_5LevelEPKcS3_
+   fun:main
+}
+
+
+

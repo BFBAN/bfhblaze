@@ -1,0 +1,60 @@
+define fiber_bt
+    set $fiber=(Fiber*)($arg0)
+    set print frame-arguments none
+    set $currFp=*($fiber->mFiberContext.stackPtr+5)
+    set $currIp=*(((void**)$currFp)+1)
+    while (($currIp < Blaze::Fiber::RunFunc) || ($currIp > (Blaze::Fiber::RunFunc+100)))
+        frame $currIp $currFp
+        set $currFp=*((void **)$currFp)
+        set $currIp=*(((void**)$currFp)+1)
+        p $currIp
+    end
+    set print frame-arguments all
+end
+
+document fiber_bt
+fiber_bt <Fiber ptr>: Print backtrace of all stack frames for the given Fiber*
+end
+
+define fibers
+    if ($argc != 0)
+        set $i = 0
+        set $fiberMgr = 0
+        while (($fiberMgr == 0) && ($i < sThreadLocalInfoCount))
+            if (($arg0 == sThreadLocalInfo[$i].mThreadId) || ($arg0 == sThreadLocalInfo[$i].mPid))
+                set $fiberMgr = ((Selector*)(*sThreadLocalInfo[$i].mSelector))->mFiberManager
+            end
+            set $i++
+        end
+    else
+        set $fiberMgr=$gSelector->mFiberManager
+    end
+
+    if ($fiberMgr == 0)
+        printf "No FiberManager available\n"
+    else
+        ptype Fiber::StackSize
+        set $idx=0
+        while ($idx < Fiber::MAX_STACK_SIZES)
+            printf "Active fibers of stack size %d:\n", $idx
+
+            set $list = &$fiberMgr->mUsedFiberList[$idx]
+            set $list_size = 0
+            set $curNode = $list->mAnchor.mpNext
+            while ($curNode != &$list->mAnchor)
+                printf "    Fiber %d: ", $list_size
+                p (Fiber*)$curNode
+                set $curNode = ($curNode)->mpNext
+                set $list_size++
+            end
+            set $idx++
+        end
+    end
+end
+
+document fibers
+fibers [<threadId> | <PID>]: Print a list of all the active fibers.
+    If a thread ID or PID is provided, the fibers will be dumped for that thread.
+    If no argument is passed, the fibers will be dumped for the thread currently setup via
+    the settls call.
+end

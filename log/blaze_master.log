@@ -1,0 +1,99 @@
+2012/12/10-09:21:17.521 INFO   <main>       system           [00000000/00000000] Version : Blaze 2.9.0.0 (CL# 257580)
+2012/12/10-09:21:17.521 INFO   <main>       system           [00000000/00000000] Build location: christianadam@python.online.ea.com:/opt/local/christianadam/gos/qos/rel/trunk
+2012/12/10-09:21:17.521 INFO   <main>       system           [00000000/00000000] Current path  : /home/gos-ops/qos.2010.common-20101011T053927/etc
+2012/12/10-09:21:17.521 INFO   <main>       system           [00000000/00000000] argv[0] : /home/gos-ops/qos.2010.common/bin/master
+2012/12/10-09:21:17.521 INFO   <main>       system           [00000000/00000000] argv[1] : -DMASTER
+2012/12/10-09:21:17.521 INFO   <main>       system           [00000000/00000000] argv[2] : -DIN_PROCESS_AUX_MASTER
+2012/12/10-09:21:17.521 INFO   <main>       system           [00000000/00000000] argv[3] : -DAUX_MASTER_PORT="17515"
+2012/12/10-09:21:17.521 INFO   <main>       system           [00000000/00000000] argv[4] : -DPLATFORM="common"
+2012/12/10-09:21:17.521 INFO   <main>       system           [00000000/00000000] argv[5] : -DBASE_PORT="17510"
+2012/12/10-09:21:17.521 INFO   <main>       system           [00000000/00000000] argv[6] : -DCONFIG_MASTER_PORT="17510"
+2012/12/10-09:21:17.521 INFO   <main>       system           [00000000/00000000] argv[7] : -DSERVER_BOOT_FILE="master.boot"
+2012/12/10-09:21:17.521 INFO   <main>       system           [00000000/00000000] argv[8] : env/prod-m3d-dfw01.boot
+2012/12/10-09:21:17.521 INFO   <main>       system           [00000000/00000000] argv[9] : -p
+2012/12/10-09:21:17.521 INFO   <main>       system           [00000000/00000000] argv[10] : /home/gos-ops/qos.2010.common/bin/master.pid
+2012/12/10-09:21:17.521 INFO   <main>       system           [00000000/00000000] argv[11] : --logdir
+2012/12/10-09:21:17.521 INFO   <main>       system           [00000000/00000000] argv[12] : ../log
+2012/12/10-09:21:17.521 INFO   <main>       system           [00000000/00000000] argv[13] : --logname
+2012/12/10-09:21:17.521 INFO   <main>       system           [00000000/00000000] argv[14] : blaze_master
+2012/12/10-09:21:17.521 INFO   <main>       system           [00000000/00000000] [ProcessController].initialize: config predefines(MASTER=(null))
+2012/12/10-09:21:17.521 INFO   <main>       system           [00000000/00000000] [ProcessController].initialize: config predefines(IN_PROCESS_AUX_MASTER=(null))
+2012/12/10-09:21:17.521 INFO   <main>       system           [00000000/00000000] [ProcessController].initialize: config predefines(AUX_MASTER_PORT="17515")
+2012/12/10-09:21:17.521 INFO   <main>       system           [00000000/00000000] [ProcessController].initialize: config predefines(PLATFORM="common")
+2012/12/10-09:21:17.521 INFO   <main>       system           [00000000/00000000] [ProcessController].initialize: config predefines(BASE_PORT="17510")
+2012/12/10-09:21:17.521 INFO   <main>       system           [00000000/00000000] [ProcessController].initialize: config predefines(CONFIG_MASTER_PORT="17510")
+2012/12/10-09:21:17.521 INFO   <main>       system           [00000000/00000000] [ProcessController].initialize: config predefines(SERVER_BOOT_FILE="master.boot")
+2012/12/10-09:21:17.528 INFO   <main>       controller       [00000000/00000000] [ProcessController].initialize: Initialization sequence start.
+2012/12/10-09:21:17.528 INFO   <main>       system           [00000000/00000000] [ProcessController].initialize: Server starting with boot config 'env/prod-m3d-dfw01.boot'
+2012/12/10-09:21:17.531 WARN   <main>       connection       [00000000/00000000] [SslContext:0x1fd3a70].initialize: PEM_read_bio_X509 failed.
+2012/12/10-09:21:17.531 WARN   <main>       connection       [00000000/00000000] [SslContext:0x1fd3a70].logError:  error:0906D06C:PEM routines:PEM_read_bio:no start line (906d06c)
+2012/12/10-09:21:17.531 WARN   <main>       connection       [00000000/00000000] [SslContext:0x1fd3a70].logError:  error:20068079:BIO routines:BIO_gets:unsupported method (20068079)
+2012/12/10-09:21:17.531 WARN   <main>       connection       [00000000/00000000] [SslContext:0x1fd3a70].logError:  error:2006D080:BIO routines:BIO_new_file:no such file (2006d080)
+2012/12/10-09:21:17.531 WARN   <main>       connection       [00000000/00000000] [SslContext:0x1fd3a70].logError:  error:02001002:system library:fopen:No such file or directory (2001002)
+2012/12/10-09:21:17.533 INFO   configMaster system           [00000000/00000000] [EpollSelector:0x204f630].initialize: max file descriptors set to 65000
+2012/12/10-09:21:17.536 INFO   configMaster connection       [00000000/00000000] [Endpoint:0x206b940].initialize: Opening port 17510 on internal interface (216.151.212.100) for endpoint 'fire'
+2012/12/10-09:21:17.536 INFO   configMaster connection       [00000000/00000000] [Endpoint:0x206d020].initialize: Opening port 17511 on internal interface (216.151.212.100) for endpoint 'http'
+2012/12/10-09:21:17.536 INFO   configMaster connection       [00000000/00000000] [Endpoint:0x206e320].initialize: Opening port 17512 on internal interface (216.151.212.100) for endpoint 'event'
+2012/12/10-09:21:17.536 INFO   configMaster controller       [00000000/00000000] [Controller:0x20431e0].initializeConnectionManager: using 'fire' as the internal endpoint.
+2012/12/10-09:21:17.537 INFO   configMaster controller       [00000000/00000000] [ProcessController].waitToStart
+2012/12/10-09:21:17.537 INFO   aux1         system           [00000000/00000000] [EpollSelector:0x204f3e0].initialize: max file descriptors set to 65000
+2012/12/10-09:21:17.539 INFO   aux1         connection       [00000000/00000000] [Endpoint:0x2092e80].initialize: Opening port 17515 on internal interface (216.151.212.100) for endpoint 'fire'
+2012/12/10-09:21:17.539 INFO   aux1         connection       [00000000/00000000] [Endpoint:0x20945e0].initialize: Opening port 17516 on internal interface (216.151.212.100) for endpoint 'http'
+2012/12/10-09:21:17.540 INFO   aux1         connection       [00000000/00000000] [Endpoint:0x20957e0].initialize: Opening port 17517 on internal interface (216.151.212.100) for endpoint 'event'
+2012/12/10-09:21:17.540 INFO   aux1         controller       [00000000/00000000] [Controller:0x2037250].initializeConnectionManager: using 'fire' as the internal endpoint.
+2012/12/10-09:21:17.540 INFO   aux1         controller       [00000000/00000000] [ProcessController].waitToStart
+2012/12/10-09:21:17.540 INFO   configMaster controller       [00000000/00000000] [Controller:0x20431e0].start: starting controller.
+2012/12/10-09:21:17.541 INFO   configMaster controller       [00000000/00000000] [Controller:0x20431e0].controllerBootstrap: assigned instance id 0x0
+2012/12/10-09:21:17.541 INFO   configMaster controller       [00000000/00000000] [Controller:0x20431e0].controllerBootstrap: got config data from master; starting configuration.
+2012/12/10-09:21:17.544 INFO   configMaster database         [00000000/00000000] Added DB config main (Host: gosprod-qos01.m3d-dfw.ea.com:3306, Schema: qos, UserName: qos_user)
+2012/12/10-09:21:17.643 INFO   configMaster database         [00000000/00000000] Added DB config main (Host: gosprod-qos01.m3d-dfw.ea.com:3306, Schema: qos, UserName: qos_user)
+2012/12/10-09:21:17.735 INFO   configMaster controller       [00000000/00000000] [Controller:0x20431e0].activateComponents: FRAMEWORK_MASTER components now in the ACTIVE state
+2012/12/10-09:21:17.735 INFO   configMaster controller       [00000000/00000000] [Controller:0x20431e0].registerComponentsWithMaster: FRAMEWORK_MASTER components going ACTIVE; registering components with config master
+2012/12/10-09:21:17.736 INFO   configMaster user             [00000000/00000000] [AccessGroupInfoDb:0x21174e0].fetchAndCacheAccessGroupInfo(): Preparing request to fetch Access group info from table user_accessgroup_info.
+
+2012/12/10-09:21:17.736 INFO   configMaster system           [00000000/00000000] [EventManager:0x209eff0].onConfigure
+2012/12/10-09:21:17.736 INFO   configMaster replication      [00000000/00000000] [ReplicatedMap:0x2112520].synchronizeMap: Starting component=usersessions_master(0xf802) collection=0
+2012/12/10-09:21:17.736 INFO   configMaster replication      [00000000/00000000] [ReplicatedMap:0x2112520].synchronizeMap: Finished component=usersessions_master(0xf802) collection=0 
+2012/12/10-09:21:17.736 INFO   configMaster replication      [00000000/00000000] [ReplicatedMap:0x2112570].synchronizeMap: Starting component=usersessions_master(0xf802) collection=3
+2012/12/10-09:21:17.736 INFO   configMaster replication      [00000000/00000000] [ReplicatedMap:0x2112570].synchronizeMap: Finished component=usersessions_master(0xf802) collection=3 
+2012/12/10-09:21:17.749 INFO   configMaster user             [00000000/00000000] GroupManager::setDefaultGroup: default group set for client type: 0 = CONSOLE_USER
+2012/12/10-09:21:17.749 INFO   configMaster user             [00000000/00000000] GroupManager::setDefaultGroup: default group set for client type: 1 = WAL_USER
+2012/12/10-09:21:17.749 INFO   configMaster user             [00000000/00000000] GroupManager::setDefaultGroup: default group set for client type: 2 = DEDICATED_SERVER
+2012/12/10-09:21:17.749 INFO   configMaster controller       [00000000/00000000] [Controller:0x20431e0].activateComponents: FRAMEWORK_SLAVE components now in the ACTIVE state
+2012/12/10-09:21:17.749 INFO   configMaster controller       [00000000/00000000] [Controller:0x20431e0].activateComponents: MASTER components now in the ACTIVE state
+2012/12/10-09:21:17.749 INFO   configMaster controller       [00000000/00000000] [Controller:0x20431e0].registerComponentsWithMaster: MASTER components going ACTIVE; registering components with config master
+2012/12/10-09:21:17.749 INFO   configMaster controller       [00000000/00000000] [Controller:0x20431e0].activateComponents: SLAVE components now in the ACTIVE state
+2012/12/10-09:21:17.749 INFO   configMaster controller       [00000000/00000000] [MasterController:0x20785f0].activate: master is now active.
+2012/12/10-09:21:17.749 INFO   aux1         controller       [00000000/00000000] [Controller:0x2037250].start: starting controller.
+2012/12/10-09:21:17.749 INFO   configMaster connection       [00000000/00000000] [ConnectionManager:0x2054f40].onNewChannel: conn=00000000 ident=00000000 channel=0x20f7e40 addr=216.151.212.100:51460
+2012/12/10-09:21:17.749 INFO   configMaster controller       [00000000/00000000] [MasterController:0x20785f0].processSubscribe: adding remote controller: id=0x00000000 name=aux1 type=AUX_MASTER addr=216.151.212.100:51460
+2012/12/10-09:21:17.750 INFO   aux1         controller       [00000000/00000000] [Controller:0x2037250].controllerBootstrap: assigned instance id 0x1
+2012/12/10-09:21:17.750 INFO   aux1         controller       [00000000/00000000] [Controller:0x2037250].controllerBootstrap: got config data from master; starting configuration.
+2012/12/10-09:21:17.753 INFO   configMaster replication      [00400000/00000000] [ReplicatedMap:0x2112490].synchronizeMap: Starting component=blazecontroller_master(0xf800) collection=0
+2012/12/10-09:21:17.753 INFO   configMaster replication      [00400000/00000000] [ReplicatedMap:0x2112490].synchronizeMap: Finished component=blazecontroller_master(0xf800) collection=0 
+2012/12/10-09:21:17.812 INFO   aux1         controller       [00000000/00000000] [Controller:0x2037250].activateComponents: FRAMEWORK_MASTER components now in the ACTIVE state
+2012/12/10-09:21:17.812 INFO   aux1         controller       [00000000/00000000] [Controller:0x2037250].registerComponentsWithMaster: FRAMEWORK_MASTER components going ACTIVE; registering components with config master
+2012/12/10-09:21:17.812 INFO   aux1         user             [00000000/00000000] [AccessGroupInfoDb:0x2aaaac04a3b0].fetchAndCacheAccessGroupInfo(): Preparing request to fetch Access group info from table user_accessgroup_info.
+
+2012/12/10-09:21:17.812 INFO   aux1         system           [00000000/00000000] [EventManager:0x2166740].onConfigure
+2012/12/10-09:21:17.813 INFO   aux1         controller       [00000000/00000000] [Controller:0x2037250].onAllMastersRegistered: Bootstrap complete, ignoring notification.
+2012/12/10-09:21:17.813 INFO   configMaster replication      [00400000/00000000] [ReplicatedMap:0x2112520].synchronizeMap: Starting component=usersessions_master(0xf802) collection=0
+2012/12/10-09:21:17.813 INFO   configMaster replication      [00400000/00000000] [ReplicatedMap:0x2112520].synchronizeMap: Finished component=usersessions_master(0xf802) collection=0 
+2012/12/10-09:21:17.813 INFO   configMaster replication      [00400000/00000000] [ReplicatedMap:0x2112570].synchronizeMap: Starting component=usersessions_master(0xf802) collection=3
+2012/12/10-09:21:17.813 INFO   configMaster replication      [00400000/00000000] [ReplicatedMap:0x2112570].synchronizeMap: Finished component=usersessions_master(0xf802) collection=3 
+2012/12/10-09:21:17.813 INFO   aux1         user             [00000000/00000000] GroupManager::setDefaultGroup: default group set for client type: 0 = CONSOLE_USER
+2012/12/10-09:21:17.813 INFO   aux1         user             [00000000/00000000] GroupManager::setDefaultGroup: default group set for client type: 1 = WAL_USER
+2012/12/10-09:21:17.813 INFO   aux1         user             [00000000/00000000] GroupManager::setDefaultGroup: default group set for client type: 2 = DEDICATED_SERVER
+2012/12/10-09:21:17.853 INFO   aux1         controller       [00000000/00000000] [Controller:0x2037250].activateComponents: FRAMEWORK_SLAVE components now in the ACTIVE state
+2012/12/10-09:21:17.853 INFO   aux1         controller       [00000000/00000000] [Controller:0x2037250].activateComponents: MASTER components now in the ACTIVE state
+2012/12/10-09:21:17.853 INFO   aux1         controller       [00000000/00000000] [Controller:0x2037250].registerComponentsWithMaster: MASTER components going ACTIVE; registering components with config master
+2012/12/10-09:21:17.853 INFO   aux1         controller       [00000000/00000000] [Controller:0x2037250].activateComponents: SLAVE components now in the ACTIVE state
+2012/12/10-09:21:17.893 INFO   aux1         controller       [00000000/00000000] [Controller:0x2037250].onAllMastersRegistered: Bootstrap complete, ignoring notification.
+2012/12/10-09:21:18.872 INFO   configMaster connection       [00000000/00000000] [ConnectionManager:0x2054f40].onNewChannel: conn=00000001 ident=00000001 channel=0x217e2c0 addr=216.151.212.100:51461
+2012/12/10-09:21:18.872 INFO   configMaster controller       [00000001/00000000] [MasterController:0x20785f0].processSubscribe: adding remote controller: id=0x00000001 name=slave type=SLAVE addr=216.151.212.100:51461
+2012/12/10-09:21:18.885 INFO   configMaster replication      [10800000/00000000] [ReplicatedMap:0x2112490].synchronizeMap: Starting component=blazecontroller_master(0xf800) collection=0
+2012/12/10-09:21:18.885 INFO   configMaster replication      [10800000/00000000] [ReplicatedMap:0x2112490].synchronizeMap: Finished component=blazecontroller_master(0xf800) collection=0 
+2012/12/10-09:21:18.946 INFO   configMaster replication      [10800000/00000000] [ReplicatedMap:0x2112520].synchronizeMap: Starting component=usersessions_master(0xf802) collection=0
+2012/12/10-09:21:18.946 INFO   configMaster replication      [10800000/00000000] [ReplicatedMap:0x2112520].synchronizeMap: Finished component=usersessions_master(0xf802) collection=0 
+2012/12/10-09:21:18.947 INFO   configMaster replication      [10800000/00000000] [ReplicatedMap:0x2112570].synchronizeMap: Starting component=usersessions_master(0xf802) collection=3
+2012/12/10-09:21:18.947 INFO   configMaster replication      [10800000/00000000] [ReplicatedMap:0x2112570].synchronizeMap: Finished component=usersessions_master(0xf802) collection=3 

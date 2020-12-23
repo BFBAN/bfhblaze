@@ -1,0 +1,22 @@
+#!/bin/sh
+
+usage()
+{
+    echo "Usage: $1 //server/share mount_point"
+}
+
+if [ $# != 2 ]; then
+    usage $0
+    exit 1
+fi
+
+unc=$1
+mountpoint=$2
+
+user=`id -n -u`
+group=`id -n -g`
+uid=`id -u $user`
+gid=`id -g $user`
+
+sudo mount -t cifs "$unc" $mountpoint -o rw,uid=$uid,gid=$gid,exec,user=$user
+

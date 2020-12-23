@@ -1,0 +1,60 @@
+#
+# This function will lookup the thread local globals used by the blaze server based on either
+# thread ID or PID (from a core file) and print the values of the interesting globals 
+# (like gCurrentContext).  This is to work around a bug in GDB which prevents printing of TLS
+# variables
+#
+define dumptls
+    set $i = 0
+    while ($i < sThreadLocalInfoCount)
+        set $printIt = 0
+        set $done = 0
+        if $argc == 0
+            set $printIt = 1
+        else
+            if $arg0 == sThreadLocalInfo[$i].mThreadId
+                set $printIt = 1
+                set $done = 1
+            end
+            if $arg0 == sThreadLocalInfo[$i].mPid
+                set $printIt = 1
+                set $done = 1
+            end
+        end
+        if $printIt == 1
+            printf "sThreadLocalInfo[%d]:\n", $i
+            printf "gSelector=%p\n", *sThreadLocalInfo[$i].mSelector
+            printf "gCurrentFiber=%p\n", *sThreadLocalInfo[$i].mCurrentFiber
+            printf "gController=%p\n", *sThreadLocalInfo[$i].mController
+            printf "gUserSessionManager=%p\n", *sThreadLocalInfo[$i].mUserSessionManager
+            printf "gUserSetManager=%p\n", *sThreadLocalInfo[$i].mUserSetManager
+            printf "gIdentityManager=%p\n", *sThreadLocalInfo[$i].mIdentityManager
+        end
+        if $done == 1
+            loop_break
+        end
+        set $i = $i + 1
+    end
+end
+
+define settls
+    set $i = 0
+    while ($i < sThreadLocalInfoCount)
+        set $done = 0
+        if (($arg0 == sThreadLocalInfo[$i].mThreadId) || ($arg0 == sThreadLocalInfo[$i].mPid))
+            set $done = 1
+
+            set $gSelector=(Selector*)(*sThreadLocalInfo[$i].mSelector)
+            set $gCurrentFiber=(Fiber*)(*sThreadLocalInfo[$i].mCurrentFiber)
+            set $gController=(Controller*)(*sThreadLocalInfo[$i].mController)
+            set $gUserSessionManager=(UserSessionManager*)(*sThreadLocalInfo[$i].mUserSessionManager)
+            set $gUserSetManager=(UserSetManager*)(*sThreadLocalInfo[$i].mUserSetManager)
+            set $gIdentityManager=(IdentityManager*)(*sThreadLocalInfo[$i].mIdentityManager)
+        end
+        if $done == 1
+            loop_break
+        end
+        set $i++
+    end
+end
+

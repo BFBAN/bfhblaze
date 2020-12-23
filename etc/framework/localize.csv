@@ -1,0 +1,64 @@
+Server_Id,en,fr
+SDB_KILLS,Kills,F_Kills
+SDB_KILLS_LONG,Total Kills by this player,F_Kills_Long
+SDB_DEATHS,Deaths,F_Deaths
+SDB_DEATHS_LONG,Total Deaths by this player,F_Deaths_Long
+SDB_KDR,Kill/Death Ratio,F_KDR
+SDB_KDR_LONG,Cumulative Kill/Death Ratio,F_KDR_Long
+SDB_WINS,Wins,F_Wins
+SDB_WINS_LONG,Total Wins by this player,F_Wins_Long
+SDB_LOSSES,Losses,F_Losses
+SDB_LOSSES_LONG,Total Losses by this player,F_Losses_Long
+SDB_WLR,Win/Loss Ratio,F_WLR
+SDB_WLR_LONG,Cumulative Win percentage by this player,F_WLR_Long
+SDB_MONEY,Money,F_Money
+SDB_MONEY_LONG,Money in your wallet,F_Money_Long
+SDB_TIMEALIVE,Longest Time Alive,F_TimeAlive
+SDB_TIMEALIVE_LONG,Longest time the player has stayed alive,F_TimeAlive_Long
+SDB_SECRET,Secret,F_Secret
+SDB_SECRET_LONG,The player's secret code word,F_Secret_Long
+SDB_LVL_TIME,Level Time,F_LvlTime
+SDB_LVL_TIME_LONG,Shortest time the player has finished the level,F_LvlTime_Long
+SDB_LVL_WINS,Level Wins,F_LvlWins
+SDB_LVL_WINS_LONG,Total number of wins on this map by this player,F_LvlWins_Long
+SDB_LVL_LOSSES,Level Losses,F_LvlLosses
+SDB_LVL_LOSSES_LONG,Total number of losses on this map by this player,F_LvlLosses_Long
+SDB_SHOTS,Shots,Jean Chretien
+SDB_SHOTS_LONG,Total number of shots taken by this weapon,ordinateur
+SDB_HITS,Hits,cahier
+SDB_HITS_LONG,Total number of hits with this weapon,francais
+SDB_SHR,Shot Perc.,merci
+SDB_SHR_LONG,Shot percentage of this weapon,beaucoup
+SDB_SERV_MAINT_ROUTINE_PARTIAL_OUTAGE,Some of the features for this title will be going down for routine maintenance between <0> and <1>. Apologies for any inconvenience this may cause., F_ServMaintRoutinePartialOutage  
+SDB_SERV_MAINT_EMERGENCY_PARTIAL_OUTAGE,Some of the features for this title are currently down for emergency maintenance., F_ServMaintEmergencyPartialOutage 
+SDB_SERV_MAINT_ROUTINE,The EA servers will be going down for routine maintenance between <0> and <1>. Apologies for any inconvenience this may this may cause., F_ServMaintRoutine
+SDB_SERV_MAINT_EMERGENCY, The EA servers are currently down for emergency maintenance. Apologies for any inconvenience this may cause., F_ServMaintEmergency 
+CLB_TICKER_INVITATION_SENT,<0> has invited <1> to join the club.,<0> a invité <1> de se joindre au club.
+CLB_TICKER_INVITATION_ACCEPTED,<0> has accepted invitation to join the club.,<0> a accepté l'invitation de se joindre au club.
+CLB_TICKER_INVITATION_DECLINED,<0> has declined invitation to join the club.,<0> a refusé l'invitation de se joindre au club.
+CLB_TICKER_INVITATION_REVOKED,<0> has revoked invitation to <1> to join the club.,<0> a révoqué l'invitation pour <1> de se joindre au club.
+CLB_TICKER_PETITION_SENT,<0> has sent petition to join the club.,<0> a envoyé la pétition de se joindre au club.
+CLB_TICKER_PETITION_ACCEPTED,<0> has accepted petition to join <1> to the club.,<0> a accepté la pétition pour joindre <1> au club.
+CLB_TICKER_PETITION_DECLINED,<0> has declined petition to join <1> to the club.,<0> a refusé la pétition pour joindre <1> au club.
+CLB_TICKER_PETITION_REVOKED,<0> has revoked petition to join to the club.,<0> a révoqué la pétition de se joindre au club.
+CLB_TICKER_USER_JOINED_CLUB,<0> has joined to the club.,<0> a se joint au club.
+CLB_TICKER_USER_REMOVED,<0> has removed <1> from the club.,<0> a supprimé <1> du club.
+CLB_TICKER_USER_PROMOTED,<0> has promoted <1> to club GM., <0> a donné les droits de président du club a <1>. 
+OSDK_CLUBS_SERVEREVENT_1,<0> has joined the Club.,<0> a rejoint le club.
+OSDK_CLUBS_SERVEREVENT_2,<0> has left the Club.,<0> a quitté le club.
+OSDK_CLUBS_SERVEREVENT_3,<0> has been removed from Club.,<0> a été retiré du club.
+OSDK_COMMON_SERVEREVENT_3,<0> has been granted GM access.,<0> a reçu les droits de président de club.
+OSDK_CLUBS_SERVEREVENT_6,The club has been awarded a new trophy.,Le club a gagné un nouveau trophée.
+OSDK_EASW_MAIL_NOTIFICATION,You have messages waiting. Open your Player HUB to view them.,Vous avez des messages non lus. Aller à l'Accueil pour les visualiser.
+OSDK_CLUBS_RECORD_NAME_1,Best Goal Keeper,Best Goal Keeper
+OSDK_CLUBS_RECORD_NAME_2,Most Consistent Goal Keeper,Most Consistent Goal Keeper
+OSDK_CLUBS_RECORD_DESCRIPTION_1,Highest Number of Points in a Game, Highest Number of Points in a Game
+OSDK_CLUBS_RECORD_DESCRIPTION_2,Highest Average Saves per Game, Highest Average Saves per Game
+OSDK_CLUBS_EASW_AFFILIATE,<0> was added as an affiliate club with <1> on easportsworld.com.,Le club <0> est affilié avec le club <1> en easportsworld.com.
+OSDK_CLUBS_EASW_RIVAL,<0> was added as a rival club by <1> on easportsworld.com.,Le club <0> a marquée le club <1> comme un rival en easportsworld.com.
+OSDK_CLUBS_EVENT_FIRST,Congratulations on creating your <0> club. You can also manage your club via the EASW web page at www.easportsworld.com,Congratulations on creating your <0> club. You can also manage your club via the EASW web page at www.easportsworld.com
+OSDK_CLUBS_DLG_PLAYER_JOINED_CLUB,CONGRATULATIONS: YOU HAVE BEEN ADDED TO CLUB <0>,CONGRATULATIONS: YOU HAVE BEEN ADDED TO CLUB <0>
+OSDK_CLUB_PETITION_SENT,A petition to join a club has been sent.,Une pétition à joindre à un club est envoyé.
+OSDK_CLUB_PETITION_ACCEPTED,A petition to join a club has been accepted.,La pétition de se joindre à un club est accepté.
+OSDK_CLUB_PETITION_DECLINED,A petition to join a club has been declined.,La pétition de se joindre à un club a été refusé.
+OSDK_CLUB_PETITION_REVOKED,A petition to join a club has been revoked.,La pétition de se joindre à un club a été révoqué.

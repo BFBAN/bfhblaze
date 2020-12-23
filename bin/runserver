@@ -1,0 +1,23 @@
+#!/bin/bash
+
+#
+# Calls runblaze to run blazeserver.
+#
+
+if [ $# -lt 1 ]; then
+    echo "Usage: $0 [ -v[=\"<valgrind options>\"]] <config.boot>"
+    exit 1
+fi
+
+valgrind_params=""
+
+if [ "${1:0:2}" = "-v" ]; then
+    valgrind_params="valgrind"
+    if [ "${1:2:1}" = "=" ]; then
+	valgrind_params="$valgrind_params ${1:3}"
+    fi
+    shift
+fi
+
+../bin/runblaze $valgrind_params blazeserver $*
+

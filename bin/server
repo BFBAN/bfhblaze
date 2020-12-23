@@ -1,0 +1,1091 @@
+#!/opt/local/bin/python
+
+#/usr/bin/env python2.5
+#
+# Version 1.0 -- Blaze Server Script
+#
+# This script will allow one to start, stop, restart, and reload blaze
+# servers.
+#
+# A configuration file is used to specify the server information.
+#
+## \file server
+## \brief Server command script
+import commands, os, sys, time, signal, ConfigParser, types
+
+DEFAULT_CONFIG = 'server.cfg'
+## \var DEFAULT_CONFIG
+## Holds default name for config file used when executing server commands.
+
+global basedir, servers, types, logs, monitorexternal, monitorcrashcount, monitorcrashtime
+global rotatelog_bin, rotatelog_logdir, rotatelog_archdir, rotatelog_prefix, rotatelog_maxage, rotatelog_archive
+global lock_file, max_lock_time
+global configParsed
+
+archive = False
+## \var archive
+## Flag to indicate whether logs should be archived.
+destructive = False
+## \var destructive
+## Flag indicating whether --dbdestructive was passed as a command argument.
+configdir = 'etc'
+## \var configdir
+## The directory the configuration files are kept in.
+env = ''
+## \var env
+## Environment script is being executed in (dev, test, prod).
+platform = ''
+## \var platform
+## Platform server is running for.
+year = ''
+## \var year
+## Year server is deployed for.
+user = ''
+## \var user
+## User that server is run by.
+masterLog = ''
+## \var masterLog
+## Name of the log file used for the blaze master server.
+slaveLog = ''
+## \var slaveLog
+## Name of the log file used for the blaze slave server.
+masterMonitorPid = ''
+## \var masterMonitorPid
+## Name of the file that holds the master server PID (for shutting server down).
+slaveMonitorPid = ''
+## \var slaveMonitorPid
+## Name of the file that holds the slave server PID (for shutting server down).
+mastersThisHost = 0
+## \var mastersThisHost
+## Number of masters to be started on the current host.
+configMasterBootFile = ''
+## \var configMasterBootFile
+## Boot file used to start config master.
+inProcessAuxMasters = True
+## \var inProcessAuxMasters
+## Flag indicating whether the auxiliary masters should be started up as separte processes or within the Master process
+auxMastersThisHost = []
+## \var auxMastersThisHost
+## Number of auxiliary masters to be started on the current host.
+slavesThisHost = 0
+## \var slavesThisHost
+## Number of slaves to be started on the current host.
+slaveBootFile = ''
+## \var slaveBootFile
+## Boot file used to start slaves.
+basePortThisHost = 0
+## \var basePortThisHost
+## The starting port that servers will start up on and is incremented by portsPerServer for each
+## server deployed.
+portsPerServer = 0
+## \var portsPerServer
+## The number of ports each server on this host will be allocated (by process).
+serverExecutable = ''
+## \var serverExecutable
+## Name of the file the compilation makes that can be used to start the servers.
+masterExecutable = ''
+## \var masterExecutable
+## Name of the file that the serverExecutable is copied to for the master server to start.
+slaveExecutable = ''
+## \var slaveExecutable
+## Name of the file that the serverExecutable is copied to for the slave server to start.
+masterConfigHost = ''
+## \var masterConfigHost
+## The host that the masterConfig server is running on.
+masterConfigPort = ''
+## \var masterConfigPort
+## Port that the masterConfig server is running on.
+monitorexternal = ''
+## \var monitorexternal
+## Name of the external monitor executable that monitors the servers.
+monitorcrashcount = ''
+## \var monitorcrashcount
+## Number of server crashes the monitor will accept before giving up its restart efforts.
+monitorcrashtime = ''
+## \var monitorcrashtime
+## Amount of time the monitor will allow up to the monitorcrashcount crashes to occur.
+rundir = 'bin'
+## \var rundir
+## Directory that holds the executable files to start the servers.
+scriptdir = 'bin'
+## \var scriptdir
+## Directory that holds the script files necessary for deployment/startup.
+loggingdir = 'log'
+## \var loggingdir
+## Name of logging directory that the servers print their logs to.
+valgrind = False
+## \var valgrind
+## Flag indicating whether valgrind should be used.
+rotatelog_logdir = ''
+## \var rotatelog_logdir
+## Directory where rotated logs are pushed to.
+startup_order = 'MASTER_FIRST'
+## \var startup_order
+## Specifies the order to startup the servers.  Options are SLAVE_FIRST or MASTER_FIRST
+lock_file = ''
+## \var lock_file
+## Name of lock file used to indicate server is currently performing a command.
+max_lock_time = ''
+## \var max_lock_time
+## Maximum age of a server lock file.
+valgrind_supp = ''
+## \var valgrind_supp
+## Flag indicating whether valgrind suppression should be used.
+valgrind_timestamp = ''
+## \var valgrind_timestamp
+## Flag indicating valgrind timestamps should be used.
+host = ''
+## \var host
+## Name of this host.
+
+
+def check_lock():
+    """\brief Check if lock file is present on file system.
+    
+    This function checks for the presence of a lock file on the file system.  If found the
+    function checks if the lock is beyond the max_log_time value specified and deletes it if 
+    so, and tells the user the script is running elsewhere and exits otherwise.  If lock 
+    is not found, the script prints a message and returns.
+    """
+    global lock_file, max_lock_time
+
+    print 'Checking server lock file...'
+
+    if os.path.exists(lock_file):
+        if time.time() - os.path.getmtime(lock_file) > int(max_lock_time):
+            print 'Server lock file has existed for too long. Removing the lock file.'
+            lock = open(lock_file)
+            pid = lock.readline().replace('\n', '')
+            lock.close()
+            print 'Manually killing the process referenced in the server lock file.'
+            os.system('kill -9 ' + pid)
+            os.remove(lock_file)
+        else:
+            print 'Server lock file exists - the server script is already running elsewhere. Exiting...'
+            sys.exit()
+    else:
+        print 'Server lock file does not exist'
+
+    return
+
+
+def create_lock():
+    """\brief Creates a lock file on the file system the server can reference.
+    
+    This function creates a new file with name specified by lock_file and writes the server's
+    PID as the only data in the file.
+    """
+    global lock_file
+
+    print 'Creating server lock file...'
+
+    lock = open(lock_file, 'w')
+    lock.write(str(os.getpid()))
+    lock.close()
+
+    time.sleep(1)
+
+    return
+
+def install_rotatelog_archive_cron():
+    """\brief Install cron entry for rotatelog script to archive logs periodically.
+
+    This function sets up and installs the rotatelog archive entry to cron. The entry 
+    will run rotatelog --archive every 10 minutes, which will move logs to the archive dir, 
+    at ../arc (ex. /home/gos-ops/arc).  Entry will only be added if it did not already exist.
+    The following is a sample entry:
+    rotatelog --archive --logdir=ABC --archivedir=XYZ --maxage=365 --prefix=blaze
+    The above entry will do the following: All logs with the prefix 'blaze' in directory 
+    ABC will be gzipped and moved to directory XYZ; logs without a timestamp (i.e. 
+    current logs, such as blaze_master.log and blaze_slave.log will not be moved.  Only logs 
+    with a timestamp such as blaze_master_20090430_012141 will be moved).  After that, logs 
+    in the archive directory XYZ that have a timestamp > maxage will be deleted.  The default 
+    maxage value has been set to 365.
+    """
+    global rotatelog_bin, rotatelog_logdir, rotatelog_archdir, rotatelog_prefix, rotatelog_maxage
+
+    # Set absolute paths
+    bin_path = sys.path[0] + '/' + rotatelog_bin
+    logdir_path = sys.path[0] + '/' + rotatelog_logdir
+    servername_nodate = sys.path[0].split('/')[-2].split('-')[0]
+    archdir_path = sys.path[0] + '/' + rotatelog_archdir + '/' + servername_nodate
+
+    # Get cron listing
+    cron_listing = commands.getoutput('crontab -l')
+
+    # Append empty string if crontab doesn't exist
+    if (cron_listing.find('no crontab for') != -1):
+        commands.getoutput('echo "" | crontab')
+
+    # Get cron entries
+    cron_entries = commands.getoutput('crontab -l').split('\n')
+
+    # Check to see if cron entry exists
+    # Remove any commented out and blank entries
+    has_entry = False
+    for entry in cron_entries:
+        stripped_entry = entry.lstrip()
+        stripped_entry = stripped_entry.rstrip()
+
+        if (stripped_entry == '\n'):
+            cron_entries.remove(entry)
+        elif (entry.find(bin_path) != -1):
+            if (entry.find('#') == 0):
+                cron_entries.remove(entry)
+                continue
+            has_entry = True
+            break
+
+    # Only append entry to cron if it is not already there
+    if has_entry == False:
+        cron_entries.append('*/10 * * * * ' + bin_path + ' --archive --logdir=' + logdir_path + ' --archivedir=' + archdir_path + ' --prefix=' + rotatelog_prefix + ' --maxage=' + rotatelog_maxage + ' > /dev/null 2>&1')
+
+        cron_string = ''
+        count = 0
+        entries_len = len(cron_entries) - 1
+
+        for entry in cron_entries:
+            if count != entries_len:
+                cron_string = cron_string + entry + '\n'
+            else:
+                cron_string = cron_string + entry
+            count = count + 1
+
+        commands.getoutput('echo "' + cron_string + '" | crontab')
+
+    return
+
+def read_boot_config():
+    """\brief Read the proper environment's boot file and extract required elements.
+    
+    This function runs a script called cfgtest, that parses the proper boot file and returns
+    the output.  The output is then scanned for the monitorAllowedCrashCount and 
+    monitorAllowedCrashTime.  If these two values are not found default values are assigned
+    for them.
+    """
+    global monitorcrashcount, monitorcrashtime
+
+    inDeployInfo = False
+
+    for line in commands.getoutput('cd ../etc; ../bin/cfgtest -DCONFIG_MASTER_HOST=\\"' + masterConfigHost + \
+                                   '\\" -DCONFIG_MASTER_PORT=\\"' + masterConfigPort + '\\" -DBASE_PORT=\\"' + \
+                                   str(basePortThisHost) + '\\" -DPLATFORM=\\"' + platform + '\\" -DSERVER_BOOT_FILE=\\"' + \
+                                   configMasterBootFile + '\\" env/' + env + '.boot').split('\n'):
+        if line.find('deployInfo =') != -1:
+            inDeployInfo = True
+        elif inDeployInfo == True:
+            if line.find('}') != -1:
+                inDeployInfo = False
+            else:
+                line = line.split('=')
+                key = line[0].strip()
+                if key == 'monitorAllowedCrashCount':
+                    monitorcrashcount = line[1].strip().rstrip('"').lstrip('"')
+                elif key == 'monitorAllowedCrashTime':
+                    monitorcrashtime = line[1].strip().rstrip('"').lstrip('"')
+
+    if monitorcrashcount == '' or monitorcrashtime == '':
+        print 'WARNING: Error parsing monitorAllowedCrashCount and/or monitorAllowedCrashTime value in ' + env + '.boot - using 3/10 as default values'
+        monitorcrashcount = '3'
+        monitorcrashtime = '10'
+
+
+def read_config(configfile):
+    """\brief Parse server's config file for required parameters.
+    @param configfile configfile to parse.
+     
+    This function parses the configfile for the data that is required to properly start the
+    servers.
+    """
+    global monitorexternal, monitorcrashcount, monitorcrashtime
+    global rotatelog_bin, rotatelog_logdir, rotatelog_archdir, rotatelog_prefix, rotatelog_maxage, rotatelog_archive
+    global lock_file, max_lock_time, startup_order
+    global configParsed
+    global mastersThisHost, auxMastersThisHost, slavesThisHost, slaveLog, masterLog, masterMonitorPid, slaveMonitorPid, basePortThisHost, portsPerServer
+    global serverExecutable, masterExecutable, slaveExecutable, masterConfigHost, masterConfigPort, inProcessAuxMasters, configMasterBootFile, slaveBootFile
+
+    configParser(configfile)
+    
+    # Get Global configuration options first
+    startup_order = configParsed.get('GLOBAL', 'STARTUP_ORDER')
+    lock_file = configParsed.get('GLOBAL', 'LOCK_FILE')
+    max_lock_time = configParsed.get('GLOBAL', 'MAX_LOCK_TIME')
+    rotatelog_logdir = configParsed.get('GLOBAL', 'ROTATELOG_LOGDIR')
+    monitorexternal = configParsed.get('GLOBAL', 'MONITOR_EXTERNAL')
+    portsPerServer = configParsed.getint('GLOBAL', 'PORTS_PER_SERVER')
+    basePortThisHost = configParsed.getint('GLOBAL', host)
+    serverExecutable = configParsed.get('GLOBAL', 'SERVER_EXECUTABLE_NAME')
+    masterConfigHost = configParsed.get('GLOBAL', 'MASTER_CONFIG_HOST')
+    masterConfigPort = configParsed.get('GLOBAL', 'MASTER_CONFIG_PORT')
+    rotatelog_bin = configParsed.get('GLOBAL', 'ROTATELOG_BIN')
+    rotatelog_archdir = configParsed.get('GLOBAL', 'ROTATELOG_ARCHDIR')
+    rotatelog_prefix = configParsed.get('GLOBAL', 'ROTATELOG_PREFIX')
+    rotatelog_maxage = configParsed.get('GLOBAL', 'ROTATELOG_MAXAGE')
+    rotatelog_archive = configParsed.get('GLOBAL', 'ROTATELOG_ARCHIVE')
+
+    # Get Master configuration options
+    masterLog = configParsed.get('MASTER', 'MASTER_LOGS')
+    masterMonitorPid = configParsed.get('MASTER', 'MONITOR_PIDS')
+    masterExecutable = configParsed.get('MASTER', 'MASTER_EXECUTABLE_NAME')
+
+    if host == configParsed.get('MASTER', 'CONFIG_MASTER_HOST').strip():
+        mastersThisHost = 1
+        configMasterBootFile = configParsed.get('MASTER', 'CONFIG_MASTER_BOOT').strip()
+    else:
+        print 'Config Master to be started on ' + configParsed.get('MASTER', 'CONFIG_MASTER_BOOT').strip()
+    
+    inProcessAuxMasters = configParsed.getboolean('MASTER', 'IN_PROCESS_AUX_MASTERS')
+    #only need to get store names of aux masters if out of process
+    if not inProcessAuxMasters:
+        for server in configParsed.get('MASTER', 'AUXILIARY_MASTER_HOSTS').strip().split('\n'):
+            if not server == '':        #make sure there is a value to parse
+                if server.find(host) != -1:
+                    server = server.split('=')[1].strip()
+                    #host is present so this box must get some work done on it
+                    if server == '':
+                        break
+                    auxServers = server.split(',')
+                    #split on the command to separate the list
+                    if len(auxServers) > 1:
+                        #several aux server names present, so strip and add to list
+                        for auxServer in auxServers:
+                            auxMastersThisHost.append(auxServer.strip())
+                    elif len(auxServers) == 1:
+                        #only 1 item for this host, could be a single aux server or a number
+                        try:
+                            int(auxServers[0])
+                            del auxMastersThisHost[:]
+                        except ValueError:
+                            auxMastersThisHost.append(auxServers[0].strip())
+                        
+    # Get Slave configuration options
+    slaveLog = configParsed.get('SLAVE', 'SLAVE_LOGS')
+    slaveMonitorPid = configParsed.get('SLAVE', 'MONITOR_PIDS')
+    slaveExecutable = configParsed.get('SLAVE', 'SLAVE_EXECUTABLE_NAME')
+    slaveBootFile = configParsed.get('SLAVE', 'SLAVE_BOOT')
+    
+    for server in configParsed.get('SLAVE', 'SLAVE_HOSTS').strip().split('\n'):
+        if server.find(host) != -1:
+            slavesThisHost = int(server.split('=')[1].strip())
+    if slavesThisHost == 0:
+        print "No slaves to be started up on " + host
+    
+def read_deploy_env():
+    """\brief Read from a file what environment and platform this server was deployed for.
+    
+    Function reads the deploy.env file and extracts the PLATFORM and ENV that was put there
+    during the deploy.  This allows the server to start up and know what environment and platform
+    it is for without asking the user to specify it.
+    """
+    global platform, env, year, user
+
+    try:
+        deployEnv = open('../' + configdir + '/deploy.env')
+    except IOError:
+        print '../' + configdir + '/deploy.env file not present.  Cannot perform server functions without the deployment variables \
+included by this file.\nThis file can disappear if a previous deploy fails.  Best way to solve is to delete previous deployments and re-deploy'
+        sys.exit()
+    for option in deployEnv:
+        option = option.split('=')
+
+        if option[0] == 'PLATFORM':
+            platform = option[1].replace('\n', '')
+        elif option[0] == 'ENV':
+            env = option[1].replace('\n', '')
+        elif option[0] == 'YEAR':
+            year = option[1].replace('\n', '')
+        elif option[0] == 'USER':
+            user = option[1].replace('\n', '')
+        else:
+            print 'READ ERROR: invalid option - ' + option[0]
+            sys.exit()
+
+def reload():
+    """\brief Execute a server reload for all master and slave servers.
+    
+    This function does a Blaze 'reload' for all the slaves and masters currently running.
+    A reload allows changing the logging level, and various other configuration parameters
+    without a restart, which would disconnect all currently connected users.
+    """
+    global slaveExecutable, masterExecutable, slavesThisHost, mastersThisHost
+    """
+    for i in range(1, slavesThisHost + 1):
+        fileDiff = ''
+        if slavesThisHost > 1:
+            fileDiff = str(i)
+        try:
+            pid = open(slaveExecutable + fileDiff + '.pid').readline()
+
+            exitcode = os.system('kill -HUP ' + pid)
+            if exitcode != 0:
+                print 'RELOAD ERROR:'
+                print 'reload failed with error ' + str(exitcode)
+            else:
+                print 'Reloaded ' + slaveExecutable + fileDiff
+        except IOError:
+            print 'RELOAD ERROR:'
+            print 'pid file missing'
+    """
+    for i in range(1, mastersThisHost + 1):
+        fileDiff = ''
+        if mastersThisHost > 1:
+            fileDiff = str(i)
+        try:
+            pid = open(masterExecutable + fileDiff + '.pid').readline()
+
+            exitcode = os.system('kill -HUP ' + pid)
+            if exitcode != 0:
+                print 'RELOAD ERROR:'
+                print 'reload failed with error ' + str(exitcode)
+            else:
+                print 'Reloaded ' + masterExecutable + fileDiff
+        except IOError:
+            print 'RELOAD ERROR:'
+            print 'pid file missing'
+
+def remove_lock():
+    """\brief Remove the server's lock file.
+    
+    This function deletes the server lock file if it exists.
+    """
+    global lock_file
+
+    if os.path.exists(lock_file):
+        print 'Removing server lock file...'
+        os.remove(lock_file)
+        time.sleep(1)
+
+    return
+
+def remove_rotatelog_archive_cron():
+    """\brief Remove cron entry for rotatelog script to archive logs periodically.
+
+    This function will remove an existing rotatelog --archive entry that is 
+    associated with the current server.
+    """
+    global rotatelog_bin
+
+    # Set absolute paths
+    bin_path = sys.path[0] + '/' + rotatelog_bin
+
+    # Get cron entries
+    cron_listing = commands.getoutput('crontab -l')
+    cron_entries = cron_listing.split('\n')
+
+    for entry in cron_entries:
+        stripped_entry = entry.lstrip()
+        stripped_entry = stripped_entry.rstrip()
+
+        if (entry.find(bin_path) != -1 or stripped_entry == '\n'):
+            cron_entries.remove(entry)
+
+            cron_string = ''
+            count = 0
+            entries_len = len(cron_entries) - 1
+
+            for entry in cron_entries:
+                if count != entries_len:
+                    cron_string = cron_string + entry + '\n'
+                else:
+                    cron_string = cron_string + entry
+                count = count + 1
+
+            commands.getoutput('echo \'' + cron_string + ' \' | crontab')
+                        
+            print 'Uninstalled rotatelog archive entry from cron'
+
+    return
+
+def restart():
+    """\brief Restart all blaze servers in this deploy.
+    
+    This function executes a stop, and then a start on the blaze servers for this deploy.
+    """
+    stop()
+    start()
+
+    return
+
+def start():
+    """\brief Start all servers in this deploy.
+    
+    This function starts all the servers, numbers and types specified in the configfile, for
+    this deployment.
+    """
+    global basedir, monitorexternal, monitorcrashcount, monitorcrashtime, valgrind, destructive, rotatelog_archive
+    global masterLog, slaveLog, mastersThisHost, slavesThisHost, masterMonitorPid, slaveMonitorPid
+    global serverExecutable, masterExecutable, slaveExecutable
+    
+    if os.path.exists('dbmig.error'):
+        print 'ERROR:'
+        print 'Server can not start due to a previous DBMIG error.'
+        print 'START: Failed\n'
+        sys.exit()
+
+    check_lock()
+    create_lock()
+
+    read_deploy_env()
+    read_boot_config()
+
+    cfgdir = basedir.replace(scriptdir, configdir)
+    exedir = basedir.replace(scriptdir, rundir)
+    logdir = basedir.replace(scriptdir, loggingdir)
+
+    # Start ConfigMaster first if on this host
+    
+    #define the base port that each server will start up on here
+    masterStartPort = basePortThisHost
+    auxMasterStartPort = basePortThisHost + (mastersThisHost * portsPerServer)
+    slaveStartPort = basePortThisHost + ((mastersThisHost + len(auxMastersThisHost)) * portsPerServer)
+    configMasterPort = masterConfigPort
+    if startup_order == 'SLAVE_FIRST':
+        #if this host contains the config master server adjust the port
+        if host == masterConfigHost:
+            configMasterPort = basePortThisHost + (slavesThisHost * portsPerServer)
+        slaveStartPort = basePortThisHost
+        masterStartPort = basePortThisHost + (slavesThisHost * portsPerServer)
+        auxMasterStartPort = basePortThisHost + ((mastersThisHost + slavesThisHost) * portsPerServer)
+        
+    startServer('MASTER', masterStartPort, mastersThisHost, masterExecutable, configMasterPort, \
+                masterLog, masterMonitorPid, cfgdir, exedir, logdir, configMasterBootFile)
+    
+    # Start the aux masters on this host if they are in a separate process
+    if not inProcessAuxMasters:
+        startAuxMasters('AUX_MASTER', auxMasterStartPort, auxMastersThisHost, masterExecutable, \
+                    configMasterPort, cfgdir, exedir, logdir)
+     
+    # Start the Slaves on this host
+    startServer('SLAVE', slaveStartPort, slavesThisHost, slaveExecutable, \
+                configMasterPort, slaveLog, slaveMonitorPid, cfgdir, exedir, logdir, slaveBootFile)
+        
+    # Install rotatelog archive cron entry if necessary
+    if rotatelog_archive == 'true':
+        print 'Log archiving enabled'
+        install_rotatelog_archive_cron()
+    elif rotatelog_archive == 'false':
+        print 'Log archiving disabled'
+        remove_rotatelog_archive_cron()
+    else:
+        print 'Invalid ROTATELOG_ARCHIVE value in server config. Log archiving will be disabled'
+        remove_rotatelog_archive_cron()
+
+    remove_lock()
+
+    return
+
+def startServer(type, currentPort, serversThisHost, executable, configMasterPort, logFile, serverMonitorPid, cfgdir, exedir, logdir, bootFile):
+    for i in range(1, serversThisHost + 1):
+        if i == 1:
+            os.system('cp -f %s %s' % (serverExecutable, executable))
+        # fileDiff will go at the end of all files that require differentiation based on quantity
+        # master1, master2...
+        fileDiff = ''
+        if serversThisHost > 1:
+            fileDiff = str(i)
+        print 'Attempting to start ' + type + fileDiff + '...'
+
+        pidfile = exedir + '/' + executable + fileDiff + '.pid'
+
+        currentLog = rotatelog_prefix + '_' + logFile + fileDiff
+        destructivecall = ''
+        if destructive:
+            destructivecall = '--dbdestructive '
+        valgrindcall = ''
+        if valgrind:
+            valgrindcall = 'valgrind --tool=memcheck --leak-check=yes --log-file=../log/valgrind-' + currentLog + '.log' + valgrind_supp + valgrind_timestamp + ' --error-limit=no -v '
+
+        monitorPid = serverMonitorPid + fileDiff + '.pid'
+        if type == 'SLAVE':
+            startCommand = exedir + '/monitor -p ' + exedir + '/' + monitorPid + ' -e ' + exedir + \
+               '/' + monitorexternal + ' -c ' + monitorcrashcount + ' -t ' + monitorcrashtime + \
+               ' -l ' + logdir + '/' + currentLog + ' ' + valgrindcall + exedir + \
+               '/' + executable + ' ' + destructivecall + '-DSLAVE -DPLATFORM=\\"' + \
+               platform + '\\" -DBASE_PORT=\\"' + str(currentPort) + \
+               '\\" -DCONFIG_MASTER_HOST=\\"' + masterConfigHost + \
+               '\\" -DCONFIG_MASTER_PORT=\\"' + str(configMasterPort) + '\\" -DSERVER_BOOT_FILE=\\"' +  bootFile + '\\" env/' + env + \
+               '.boot -p ' + pidfile + ' --logdir ' + rotatelog_logdir + ' --logname ' + currentLog
+        elif type == 'MASTER':
+            #flag to indicate to the master if it should start up aux masters in process
+            #set the port the aux master will start on
+            auxFlag = '-DIN_PROCESS_AUX_MASTER -DAUX_MASTER_PORT=\\"' + str(currentPort + portsPerServer / 2) + '\\" '
+            if not inProcessAuxMasters:
+                auxFlag = ''
+            startCommand = exedir + '/monitor -p ' + exedir + '/' + monitorPid + ' -e ' + exedir + \
+               '/' + monitorexternal + ' -c ' + monitorcrashcount + ' -t ' + monitorcrashtime + \
+               ' -l ' + logdir + '/' + currentLog + ' ' + valgrindcall + exedir + \
+               '/' + executable + ' ' + destructivecall + '-DMASTER ' + auxFlag + '-DPLATFORM=\\"' + \
+               platform + '\\" -DBASE_PORT=\\"' + str(currentPort) + \
+               '\\" -DCONFIG_MASTER_PORT=\\"' + str(configMasterPort) + '\\" -DSERVER_BOOT_FILE=\\"' +  bootFile + '\\" env/' + env + '.boot -p ' \
+               + pidfile + ' --logdir ' + rotatelog_logdir + ' --logname ' + currentLog
+        else:
+            print 'Undefined type specified.  Abandoning startup'        
+
+        # If the pid file already exists don't start the server again
+        try:
+            pid = open(monitorPid).readline().replace('\n', '')
+            foundProcess = False
+
+            pslist = commands.getoutput('ps -ef | grep ' + pid + ' | grep -v grep').split('\n')
+            print 'Process listing: ' + str(pslist)
+            if pslist[0] != '':
+                foundProcess = True
+
+            if foundProcess == False:
+                print 'WARNING: Monitor PID file ' + monitorPid + ' already exists but process is not running, removing file'
+                os.system('rm ' + exedir + '/' + monitorPid)
+                raise IOError
+            else:
+                print 'ERROR: Monitor PID file ' + monitorPid + ' already exists and process is already running, please run stop first'
+
+        except IOError:
+            fullcommand = 'export LD_LIBRARY_PATH=' + os.environ.get('PWD') + '/../etc; cd ' + cfgdir + '; ulimit -c unlimited; (' + 'exec ' + startCommand +  ' > /dev/null 2>&1 &) &'
+            print fullcommand
+            exitcode = os.system(fullcommand)
+
+            if exitcode != 0:
+                print 'ERROR: Start failed with error ' + exitcode
+            else:
+                print 'Started ' + type + ' successfully with logging to ' + currentLog + '.log'
+                time.sleep(1)
+        currentPort += portsPerServer
+        
+def startAuxMasters(type, currentPort, auxMasters, executable, configMasterPort, cfgdir, exedir, logdir):
+    #must copy the exe to master if there are no masters on this host to do it already
+    if mastersThisHost == 0:
+        os.system('cp -f %s %s' % (serverExecutable, masterExecutable))
+    for auxMaster in auxMasters:
+        name = auxMaster.split('.')[0]
+        print 'Attempting to start AUXILIARY_MASTER ' + name + '...'
+
+        pidfile = exedir + '/' + name + '.pid'
+
+        currentLog = rotatelog_prefix + '_' + name
+        destructivecall = ''
+        if destructive:
+            destructivecall = '--dbdestructive'
+        valgrindcall = ''
+        if valgrind:
+            valgrindcall = 'valgrind --tool=memcheck --leak-check=yes --log-file=../log/valgrind-' + currentLog + '.log' + valgrind_supp + valgrind_timestamp + ' --error-limit=no -v '
+
+        monitorPid = 'monitor_' + name + '.pid'
+        startCommand = exedir + '/monitor -p ' + exedir + '/' + monitorPid + ' -e ' + exedir + \
+           '/' + monitorexternal + ' -c ' + monitorcrashcount + ' -t ' + monitorcrashtime + \
+           ' -l ' + logdir + '/' + currentLog + ' ' + valgrindcall + exedir + \
+           '/' + executable + ' ' + destructivecall + ' -DAUX_MASTER -DPLATFORM=\\"' + \
+           platform + '\\" -DBASE_PORT=\\"' + str(currentPort) + '\\" -DCONFIG_MASTER_HOST=\\"' + masterConfigHost + \
+           '\\" -DCONFIG_MASTER_PORT=\\"' + str(configMasterPort) + '\\" -DAUX_MASTER_PORT=\\"' + str(currentPort) + \
+           '\\" -DSERVER_BOOT_FILE=\\"' +  auxMaster + '\\" env/' + env + '.boot -p ' + pidfile + ' --logdir ' + rotatelog_logdir + ' --logname ' + \
+           currentLog      
+
+        # If the pid file already exists don't start the server again
+        try:
+            pid = open(monitorPid).readline().replace('\n', '')
+            foundProcess = False
+
+            pslist = commands.getoutput('ps -ef | grep ' + pid + ' | grep -v grep').split('\n')
+            print 'Process listing: ' + str(pslist)
+            if pslist[0] != '':
+                foundProcess = True
+
+            if foundProcess == False:
+                print 'WARNING: Monitor PID file ' + monitorPid + ' already exists but process is not running, removing file'
+                os.system('rm ' + exedir + '/' + monitorPid)
+                raise IOError
+            else:
+                print 'ERROR: Monitor PID file ' + monitorPid + ' already exists and process is already running, please run stop first'
+
+        except IOError:
+            fullcommand = 'export LD_LIBRARY_PATH=' + os.environ.get('PWD') + '/../etc; cd ' + cfgdir + '; ulimit -c unlimited; (' + 'exec ' + startCommand +  ' > /dev/null 2>&1 &) &'
+            print fullcommand
+            exitcode = os.system(fullcommand)
+
+            if exitcode != 0:
+                print 'ERROR: Start failed with error ' + exitcode
+            else:
+                print 'Started ' + type + ' successfully with logging to ' + currentLog + '.log'
+                time.sleep(1)
+        currentPort += portsPerServer
+        
+def stop():
+    """\brief Stop all servers in this deploy.
+    
+    This function stops all the servers, numbers and types specified in the configfile, for
+    this deployment.
+    """
+    global archive, monitorexternal, monitorcrashcount, monitorcrashtime
+    global slaveLog, masterLog
+
+    check_lock()
+    create_lock()
+
+    read_deploy_env()
+    read_boot_config()
+    
+    remove_rotatelog_archive_cron()
+
+    cfgdir = basedir.replace(scriptdir, configdir)
+    exedir = basedir.replace(scriptdir, rundir)
+    logdir = basedir.replace(scriptdir, loggingdir)
+    archivedir = '../../arc/' + os.environ.get('PWD').split('/')[-2]
+
+    if archivedir.find('-') != -1:
+        archivedir = archivedir.split('-')[0]
+    if archive:
+        os.system('mkdir -p ' + archivedir)
+    
+    # Shutdown slaves first
+    # Figure out where the baseport for the slaves start
+    stopServer('SLAVE', basePortThisHost + ((mastersThisHost + len(auxMastersThisHost)) * portsPerServer) \
+               , 'ps -ef | grep DSLAVE | grep ' + platform + ' | grep ' \
+               + str(masterConfigPort) + ' | grep ' + masterConfigHost + ' | grep ' \
+               + str(year) + ' | grep ' + user + ' | grep -v grep | grep monitor', \
+               slavesThisHost, slaveExecutable, slaveLog, slaveMonitorPid, cfgdir, exedir, logdir, archivedir)
+    
+    # Stop the masters
+    stopAuxMasters('AUX_MASTER', basePortThisHost + (mastersThisHost * portsPerServer) \
+               , 'ps -ef | grep DAUX_MASTER | grep ' + platform + ' | grep ' \
+               + str(masterConfigPort) + ' | grep ' + str(year) + ' | grep ' \
+               + user + ' | grep -v grep | grep monitor', masterExecutable, \
+               cfgdir, exedir, logdir, archivedir)
+    
+    stopServer('MASTER', basePortThisHost \
+               , 'ps -ef | grep DMASTER | grep ' + platform + ' | grep ' \
+               + str(masterConfigPort) + ' | grep ' + str(year) + ' | grep ' \
+               + user + ' | grep -v grep | grep monitor', mastersThisHost, masterExecutable, \
+               masterLog, masterMonitorPid, cfgdir, exedir, logdir, archivedir)
+    
+    remove_lock()
+    return
+
+def stopServer(type, currentPort, psCommand, serversThisHost, executable, logFile, serverMonitorPid, cfgdir, exedir, logdir, archivedir):   
+    for i in range(1, serversThisHost + 1):
+        fileDiff = ''
+        if serversThisHost > 1:
+            fileDiff = str(i)
+        print 'Attempting to stop blazeserver ' + type + ' ' + fileDiff + '...'
+
+        pidfile = exedir + '/' + executable + fileDiff + '.pid'
+        currentLog = rotatelog_prefix + '_' + logFile + fileDiff
+        pid = ''
+        monitorPid = serverMonitorPid + fileDiff + '.pid'
+        processfound = False        
+
+        try:
+            pid = open(monitorPid).readline().replace('\n', '')
+            print 'Monitor PID file found, PID number stored in file is ' + pid
+
+            print 'Removing monitor PID file ' + monitorPid
+            os.system('rm ' + exedir + '/' + monitorPid)
+
+            print 'Killing with kill -TERM ' + pid
+            exitcode = os.system('kill ' + pid)
+            if exitcode != 0:
+                print 'ERROR: Could not kill -TERM ' + pid + ' - Error code = ' + str(exitcode)
+                print 'Looking for stray processes...'
+                pslist = commands.getoutput(psCommand + ' | grep ' + currentLog).split('\n')
+                print 'Process listing: ' + str(pslist)
+                for ps in pslist:
+                    if ps == '':
+                        print 'No stray processes found'
+                        break
+                    pid = ps.split()[1]
+                    print 'Process found in listing... PID number is ' + pid
+                    print 'Killing with kill -TERM ' + pid
+                    exitcode = os.system('kill ' + pid)
+                    if exitcode != 0:
+                        print 'ERROR: Could not kill -TERM ' + pid + ' - Error code = ' + str(exitcode)
+                    else:
+                        print 'kill -TERM ' + pid + ' ran successfully'
+                        time.sleep(5)
+            else:
+                print 'kill -TERM ' + pid + ' ran successfully'
+                time.sleep(5)
+
+            processfound = True
+
+        # Find process in process listing since pid file does not exist
+        except IOError:
+            print 'WARNING: Monitor PID file ' + monitorPid + ' is missing'
+
+            pslist = commands.getoutput(psCommand + ' | grep ' + currentLog).split('\n')
+            print 'Process listing: ' + str(pslist)
+            if pslist[0] == '':
+                print 'Monitor process not found in process listing - server has been stopped already'
+            else:
+                processfound = True
+                for ps in pslist:
+                    pid = ps.split()[1]
+                    print 'Process found in listing... PID number is ' + pid
+
+                    print 'Killing with kill -TERM ' + pid
+                    exitcode = os.system('kill ' + pid)
+                    if exitcode != 0:
+                        print 'ERROR: Could not kill -TERM ' + pid + ' - Error code = ' + str(exitcode)
+                    else:
+                        print 'kill -TERM ' + pid + ' ran successfully'
+                        time.sleep(5)
+
+        if processfound:
+            try:
+                # Check process and send 5 more kills if it stills exists
+                for i in range(1, 6):
+                    os.kill(int(pid), signal.SIGTERM)
+                    print 'Process still exists after the recent kill, attempting to kill -TERM again - Attempt #' + str(i)
+                    time.sleep(5)
+
+                # Check process listing again and kill -9 if it still exists
+                pslist = commands.getoutput(psCommand + ' | grep ' + currentLog).split('\n')
+                print 'Process listing: ' + str(pslist)
+                if pslist[0] != '':
+                    print 'Process still exists after 5 kill -TERMs have been issued. Killing with kill -9 ' + str(pid)
+                    os.system('kill -9 ' + pid)
+                    pslist = commands.getoutput(psCommand).split('\n')
+
+                    # Find blazeserver process w/o monitor attached and kill it
+                    if pslist[0] != '':
+                        for ps in pslist:
+                            print 'Blaze process w/o monitor: ' + ps
+                            pid = ps.split()[1]
+                            print 'Killing blazeserver process with kill -9 ' + str(pid)
+                            os.system('kill -9 ' + pid)
+
+                    time.sleep(3)
+
+                # Just for sanity check, check listing one last time
+                pslist = commands.getoutput(psCommand + ' | grep ' + currentLog).split('\n')
+                print 'Process listing: ' + str(pslist)
+                if pslist[0] != '':
+                    print 'ERROR: Process still exists after 5 kill -TERMs and a kill -9. Please kill the process ' + str(pid) + ' manually'
+                else:
+                    raise OSError
+
+            # Server has been stopped properly if os.kill encounters an OSError exception
+            except OSError:
+                print 'Stopped blazeserver ' + type + ' ' + fileDiff + ' successfully'
+
+        if archive:
+            os.system('mv ../log/' + currentLog + '.log' + ' ' + archivedir + '/' + currentLog + '_' + time.strftime('%Y%m%d_%H%M%S', time.gmtime()) + '.log && mv ../log/' + currentLog + '* ' + archivedir)
+
+        # Remove the Blaze PID file if it's still around
+        if os.path.exists(pidfile):
+            os.system('rm ' + pidfile)
+            print 'Blaze PID file removed'
+            
+        currentPort += portsPerServer
+        
+def stopAuxMasters(type, currentPort, psCommand, executable, cfgdir, exedir, logdir, archivedir):   
+    for auxMaster in auxMastersThisHost:
+        name = auxMaster.split('.')[0]
+        print 'Attempting to stop blazeserver AUX_MASTER ' + name + '...'
+
+        pidfile = exedir + '/' + name + '.pid'
+        currentLog = rotatelog_prefix + '_' + name
+        pid = ''
+        monitorPid = 'monitor_' + name + '.pid'
+        processfound = False        
+
+        try:
+            pid = open(monitorPid).readline().replace('\n', '')
+            print 'Monitor PID file found, PID number stored in file is ' + pid
+
+            print 'Removing monitor PID file ' + monitorPid
+            os.system('rm ' + exedir + '/' + monitorPid)
+
+            print 'Killing with kill -TERM ' + pid
+            exitcode = os.system('kill ' + pid)
+            if exitcode != 0:
+                print 'ERROR: Could not kill -TERM ' + pid + ' - Error code = ' + str(exitcode)
+                print 'Looking for stray processes...'
+                pslist = commands.getoutput(psCommand + ' | grep ' + name.upper()).split('\n')
+                print 'Process listing: ' + str(pslist)
+                for ps in pslist:
+                    if ps == '':
+                        print 'No stray processes found'
+                        break
+                    pid = ps.split()[1]
+                    print 'Process found in listing... PID number is ' + pid
+                    print 'Killing with kill -TERM ' + pid
+                    exitcode = os.system('kill ' + pid)
+                    if exitcode != 0:
+                        print 'ERROR: Could not kill -TERM ' + pid + ' - Error code = ' + str(exitcode)
+                    else:
+                        print 'kill -TERM ' + pid + ' ran successfully'
+                        time.sleep(5)
+            else:
+                print 'kill -TERM ' + pid + ' ran successfully'
+                time.sleep(5)
+
+            processfound = True
+
+        # Find process in process listing since pid file does not exist
+        except IOError:
+            print 'WARNING: Monitor PID file ' + monitorPid + ' is missing'
+
+            pslist = commands.getoutput(psCommand + ' | grep ' + name.upper()).split('\n')
+            print 'Process listing: ' + str(pslist)
+            if pslist[0] == '':
+                print 'Monitor process not found in process listing - server has been stopped already'
+            else:
+                processfound = True
+                for ps in pslist:
+                    pid = ps.split()[1]
+                    print 'Process found in listing... PID number is ' + pid
+
+                    print 'Killing with kill -TERM ' + pid
+                    exitcode = os.system('kill ' + pid)
+                    if exitcode != 0:
+                        print 'ERROR: Could not kill -TERM ' + pid + ' - Error code = ' + str(exitcode)
+                    else:
+                        print 'kill -TERM ' + pid + ' ran successfully'
+                        time.sleep(5)
+
+        if processfound:
+            try:
+                # Check process and send 5 more kills if it stills exists
+                for i in range(1, 6):
+                    os.kill(int(pid), signal.SIGTERM)
+                    print 'Process still exists after the recent kill, attempting to kill -TERM again - Attempt #' + str(i)
+                    time.sleep(5)
+
+                # Check process listing again and kill -9 if it still exists
+                pslist = commands.getoutput(psCommand + ' | grep ' + name.upper()).split('\n')
+                print 'Process listing: ' + str(pslist)
+                if pslist[0] != '':
+                    print 'Process still exists after 5 kill -TERMs have been issued. Killing with kill -9 ' + str(pid)
+                    os.system('kill -9 ' + pid)
+                    pslist = commands.getoutput(psCommand).split('\n')
+
+                    # Find blazeserver process w/o monitor attached and kill it
+                    if pslist[0] != '':
+                        for ps in pslist:
+                            print 'Blaze process w/o monitor: ' + ps
+                            pid = ps.split()[1]
+                            print 'Killing blazeserver process with kill -9 ' + str(pid)
+                            os.system('kill -9 ' + pid)
+
+                    time.sleep(3)
+
+                # Just for sanity check, check listing one last time
+                pslist = commands.getoutput(psCommand + ' | grep ' + name.upper()).split('\n')
+                print 'Process listing: ' + str(pslist)
+                if pslist[0] != '':
+                    print 'ERROR: Process still exists after 5 kill -TERMs and a kill -9. Please kill the process ' + str(pid) + ' manually'
+                else:
+                    raise OSError
+
+            # Server has been stopped properly if os.kill encounters an OSError exception
+            except OSError:
+                print 'Stopped blazeserver AUX_MASTER ' + name + ' successfully'
+
+        if archive:
+            os.system('mv ../log/' + currentLog + '.log' + ' ' + archivedir + '/' + currentLog + '_' + time.strftime('%Y%m%d_%H%M%S', time.gmtime()) + '.log && mv ../log/' + currentLog + '* ' + archivedir)
+
+        # Remove the Blaze PID file if it's still around
+        if os.path.exists(pidfile):
+            os.system('rm ' + pidfile)
+            print 'Blaze PID file removed'
+            
+        currentPort += portsPerServer
+
+def usage():
+    """\brief Print the usage for this script to standard output. 
+    """
+    print 'Usage: ./server <command> [options]'
+    print '\nCommands:'
+    print 'reload, restart, start, stop'
+    
+def configParser(serverConfig):
+    """\brief Initialize the ConfigParser with the correct config file.
+    @param serverConfig of file configuration file to open for parsing.
+    """
+    global configParsed
+    configParsed = ConfigParser.SafeConfigParser()
+    if configParsed.read(serverConfig) == []:
+        print "No config file found.  Exiting"
+        sys.exit(-1)
+
+def stripConfigs():
+    """\brief Removes all the unnecessary server config files from the deploy
+    This function should only be called during the deploy.  It copies the proper server config
+    file to server.cfg and removes the unnecessary server configs that exist in perforce.
+    """
+    print 'Removing unnecessary server config files and moving server_' + env + '_' + platform + '.cfg to server.cfg'
+    commands.getoutput('mv server_' + env + '_' + platform + '.cfg server.cfg')
+    commands.getoutput('ls | grep server_ | grep cfg | xargs rm')
+
+if len(sys.argv) < 2:
+    usage()
+    sys.exit()
+
+# Make sure the user running the script owns the root directory of the deploy
+whoami = commands.getoutput('whoami')
+## \var whoami
+## Holds the login of the user executing this script.
+owner = commands.getoutput('ls -al ..').split('\n')[1].split()[2]
+## \var owner
+## Holds the owner of the deployment as specified by unix file permissions.
+if whoami != owner:
+    print 'User ' + whoami + ' does not own the root directory of the deploy.'
+    print 'Sudo to ' + owner + ' to run this script.'
+    sys.exit()
+
+config = DEFAULT_CONFIG
+## \var config
+## Name of config file to parse for server required parameters.
+
+basedir = os.environ.get('PWD')
+## \var basedir
+## Current directory that script is being called from.
+
+if len(basedir) > 255:
+    print 'WARNING: DIRECTORY PATH IS TOO LONG.  PLEASE REDEPLOY TO SHORTER DIRECTORY PATH'
+
+host = commands.getoutput('hostname')
+for option in sys.argv[2:]:
+    if option.find('--archive') != -1:
+        archive = True
+    elif option.find('--config=') != -1:
+        config = option[9:]
+    elif option.find('-e=') != -1:
+        env = option[3:]
+    elif option.find('-p=') != -1:
+        platform = option[3:]
+    elif option.find('--valgrind') != -1:
+        valgrind = True
+    elif option.find('--dbdestructive') != -1:
+        destructive = True
+    elif option.find('--valgrind.supp=') != -1:
+        valgrind_supp = ' --suppressions=' + option[3:]
+    elif option.find('--valgrind.timestamp') != -1:
+        valgrind_timestamp = ' --time-stamp=' + option[3:]
+    else:
+        usage()
+        sys.exit()
+        
+#If this option specified perform it before reading config file
+#Should only be done during the deploy
+if sys.argv[1] == 'stripConfigs':
+    stripConfigs()
+    sys.exit()
+
+read_deploy_env()
+
+read_config(config)
+
+if sys.argv[1] == 'reload':
+    reload()
+elif sys.argv[1] == 'restart':
+    restart()
+elif sys.argv[1] == 'start':
+    start()
+elif sys.argv[1] == 'stop':
+    stop()
+elif sys.argv[1] == 'install-rotatelog-archive-cron':
+    install_rotatelog_archive_cron()
+elif sys.argv[1] == 'remove-rotatelog-archive-cron':
+    remove_rotatelog_archive_cron()
+else:
+    print 'Usage Error: invalid option ' + sys.argv[1] + ' specified\n'
+    usage()
+    sys.exit()

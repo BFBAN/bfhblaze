@@ -1,0 +1,128 @@
+#!/bin/bash
+
+#
+# Simple script to do some "fixing up" after rsync is done.
+#    - clean up dos endings.
+#
+
+PATHDIR=$(dirname $0)
+
+pushd $PATHDIR
+
+PACKAGE_DIR=../packages
+if [ -f ../make/config.mak ]
+then
+	PACKAGE_DIR=`grep PACKAGE_DIR ../make/config.mak | sed 's/PACKAGE_DIR[ ]*=[ ]*//'`
+fi
+
+ORACLE_DIR=$PACKAGE_DIR/oracle/10.2.0.3/linux64/lib
+
+popd
+
+# --------------------------------------
+# Functions
+# --------------------------------------
+relink() {
+	if [ -z "$2" ]
+	then
+		echo "*** WARNING: Missing symlink target! ($1) => (missing)"
+		return 1
+	elif [ ! -e "$2" ]
+	then
+		echo "Creating symlink ($1) => ($2)"
+		if ! ln -s "$1" "$2"
+		then
+			echo "*** WARNING: Failed to create symlink!"
+			return 1
+		fi
+	elif [ -h "$2" ]
+	then
+		echo "*** WARNING: Target file ($2) is already a symlink.  Not sure what to do. Ignoring."
+		return 1
+	else
+		echo "Removing old symlink.  Recreating symlink ($1) => ($2)"
+		if ! rm "$2"
+		then
+			echo "*** WARNING: Failed to delete symlink!"
+			return 1
+		elif ! ln -s "$1" "$2"
+		then
+			echo "*** WARNING: Failed to create symlink!"
+			return 1
+		fi
+	fi
+}
+
+# --------------------------------------
+
+# Clean up dos file ending
+echo Cleaning up text file endings in Linux...
+pushd $PATHDIR 1> /dev/null
+dos2unix .dos2unix_list
+dos2unix `cat .dos2unix_list`
+popd 1> /dev/null
+
+
+# Relink libraries.
+echo Recreating symbolic links...
+failures=0
+pushd $PATHDIR 1> /dev/null
+
+# Link Oracle lib
+pushd ".." 1> /dev/null
+pushd "$ORACLE_DIR" 1> /dev/null
+if ! relink "libclntsh.so.10.1" "libclntsh.so"
+then
+        let "failures += 1"
+fi
+popd 1> /dev/null       
+popd 1> /dev/null
+
+while read symlink1 symlink2 symlink3
+do
+	# If it's a blank line or comment, continue.
+	if [ -z "$symlink1" ]
+	then
+		continue
+	elif [ "#" = "${symlink1:0:1}" ]
+	then
+		continue
+	fi
+	
+	pushd ".." 1> /dev/null
+
+	# If we are symlinking 2 files from different directories.
+	if [ -z "$symlink3" ]
+	then
+		echo "*** WARNING: Missing target symlink for input line ($symlink1 $symlink2).  Ignoring."
+		let "failures += 1"
+	else
+		pushd "$symlink1" 1> /dev/null
+		if ! relink "$symlink2" "$symlink3"
+		then
+			let "failures += 1"
+		fi
+		popd 1> /dev/null
+	fi
+	
+	popd 1> /dev/null
+	
+done < .symlink_list
+
+if [ $failures -gt 0 ]
+then
+	echo; echo "*** ERROR: You had $failures errors while creating symlinks."; echo;
+else
+	echo; echo "All symlinks were created successfully."; echo;
+fi
+
+popd 1> /dev/null
+
+# Changing file permissions (for deploy)
+echo Changing file permissions for deploy script...
+pushd $PATHDIR 1> /dev/null
+chmod -R a+rx ../*
+popd 1> /dev/null
+
+exit 0
+

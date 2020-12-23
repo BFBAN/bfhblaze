@@ -1,0 +1,1210 @@
+#!/opt/local/bin/python
+
+#/usr/bin/env python2.5
+#
+# Version 1.0 -- Blaze Deploy Script
+#
+# This script will allow one to deploy a blaze system to a remote
+# server and execute commands remotely.
+#
+# A configuration file is used to specify the deploy information.
+#
+# A filelist is used to specify which files need to be included in
+# a Blaze deploy package.
+#
+# TODO:
+# -----
+# - build-dist - file list needs to be complete
+# - start
+# - stop
+# - restart
+# - deploy
+# - deploy-cfg
+# - install
+# - info
+# - invoke - needs more testing
+# - dbmig
+# - rollback
+# - configure
+# - reload
+#
+## \file deploy
+## \brief Blaze deploy script
+import commands, fileinput, glob, os, sys, time, socket, smtplib, ConfigParser, types
+
+DEFAULT_CONFIG = 'deploy.cfg'
+## \var DEFAULT_CONFIG
+## Holds default name for config file used for deploying.
+
+global includefiles, includedests, excludefiles, databaseinfo
+global envconfig, archive, archivelogs, command, dir, env
+global platform, server, servers, serverscript, serverconfig
+global generateconfigs, destructive, valgrind, validationscript, user, year, minFreeSpace
+global olddeploycount, staginguser, stagingdir
+global monitorexternalcfg, sendnotification
+global dbname, dbhost, dbport, dbuser, dbpassword, dbclient
+global monitorMail, monitorNotRestartedMail, deployMail
+global configParsed, serversForDeployment, serversForShutdown, serversForStartup
+
+serversForStartup = []
+## \var serversForStartup
+## Holds hostnames for the all the machines that have servers on them that need to be started
+serversForShutdown = []
+## \var serversForShutdown
+## Holds hostnames for the all the machines that have server on them that need to be shut down
+serversForDeployment = []
+## \var serversForDeployment
+## Holds hostnames for the all the machines that will host blaze servers
+includefiles = []
+## \var includefiles
+## Holds the files to be included in the server tar.gz file. (Wildcards accepted)
+includedests = []
+## \var includedests
+## Holds the destination for files in case they are to be placed in directories other than
+## where they originated from.
+excludefiles = []
+## \var excludefiles
+## Holds the files to be excluded from the tar.gz file. (Wildcards accepted)
+databaseinfo = []
+## \var databaseinfo
+## Holds list of components that have database migration scripts.
+archive = ''
+## \var archive
+## Name of the archive file to transfer to deployed server host.
+archivelogs = False
+## \var archivelogs
+## Flag to indicate whether logs from previous deploy should be archived.
+envconfig = ''
+## \var envconfig
+## Name of boot file for specific environment.
+command = ''
+## \var command
+## Command server should execute (eg. deploy, start, setup...).
+dir = ''
+## \var dir
+## Not sure.
+env = ''
+## \var env
+## Environment script is being run in (test, dev, live...).
+platform = ''
+## \var platform
+## Platform script is being run for (ps3, wii, xbl2...).
+scriptdir = 'bin'
+## \var scriptdir
+## Directory where the server and deploy scripts reside.
+server = ''
+## \var server
+## Name of server to deploy.
+servers = []
+## \var servers
+## List of server hosts that the tar.gz file must be copied to.
+serverscript = 'server'
+## \var serverscript
+## Name of the server script that controls the server executable file.
+serverconfig = 'server_$ENV_$PLATFORM.cfg'
+## \var serverconfig
+## Name of the config file the server uses for configuration options.
+generateconfigs = 'false'
+## \var generateconfigs
+## Flag to indicate if the config files should be generated during deploy.
+destructive = False
+## \var destructive
+## Flag to indicate if --dbdestructive was passed to the script.
+valgrind = False
+## \var valgrind
+## Flag to indicate if --valgrind was passed to the script.
+validationscript = 'validation'
+## \var validationscript
+## Script that validates deploy.
+validationcheck = True
+## \var validationcheck
+## Flag to indicate whether a validation check should be done.
+user = ''
+## \var user
+## User that will be used to execute the deploy commands via sudo.
+year = 0
+## \var year
+## Year deployment is for.
+olddeploycount = 0
+## \var olddeploycount
+## How many previous deploys to keep on the destination server.
+minFreeSpace = 0
+## \var minFreeSpace
+## The minimum free space to deploy on the destination machine.
+staginguser = 'lobby'
+## \var staginguser
+## The user to execute the scripts when staging.
+stagingdir = 'staging'
+## \var stagingdir
+## Directory to deploy server to when staging.
+monitorexternalcfg = ''
+## \var monitorexternalcfg
+## Name of the monitor's external config file.
+sendnotification = ''
+## \var sendnotification
+## Flag to indicate if notification of deployment should be sent out.
+
+def build_dist():
+    """\brief Constructs the tar.gz file that contains all the necessary files for the
+    server to startup the remote machine.
+    Reads from deploy.cfg file for the INCLUDE_FILES and EXCLUDE_FILES and creates 
+    the package accordingly.  To include files add them to the INCLUDE_FILES list in
+    the same format as the existing entries (wildcards allowed) and excluded files are
+    taken from the EXCLUDE_LIST.  Files can not be on both lists.  For example, you can 
+    not add a file on the INCLUDE_LIST and also have a wildcard entry on the 
+    EXCLUDE_LIST that will match the included file's criteria.  The file will be 
+    excluded.
+    """
+    includelist = []
+    excludelist = []
+
+    print 'BUILD-DIST: Creating archive ...'
+
+    # validate build
+    if validationcheck == True:
+        statusoutput = commands.getstatusoutput('. ./setenv.sh ' + os.getcwd() + '/.. && ./' + validationscript)
+        if statusoutput[0] != 0:
+            print 'BUILD ERROR:'
+            print statusoutput[1]
+            sys.exit(statusoutput[0])
+    else:
+        print 'BUILD-DIST: Skipping validation check...'
+
+    for filename in includefiles:
+        includelist.append('../' + filename)
+    for filename in excludefiles:
+        excludelist.append('../' + filename)
+
+    # blaze-YYYYmmddTHHMMSS.tar.gz
+    archivename = 'blaze-' + time.strftime('%Y%m%dT%H%M%S', time.gmtime())
+
+    # build command string
+    archivecommand = 'tar czf ' + archivename + '.tar.gz ' + ' '.join(includelist) + ' --ignore-failed-read'
+    for exclude in excludelist:
+        archivecommand = archivecommand + ' --exclude=' + exclude
+
+    statusoutput = commands.getstatusoutput(archivecommand)
+    if statusoutput[0] != 0:
+        print 'BUILD ERROR:'
+        print statusoutput[1]
+        os.remove(archivename + '.tar.gz')
+        sys.exit(statusoutput[0])
+
+    statusoutput = commands.getstatusoutput('mkdir -p archive/' + archivename + ' && mv ' + archivename + '.tar.gz archive/' + archivename)
+    if statusoutput[0] != 0:
+        print 'BUILD ERROR:'
+        print statusoutput[1]
+        sys.exit(statusoutput[0])
+
+    # untar, remap the files, and recreate the archive
+    os.chdir('archive/' + archivename)
+    remapcommand = 'tar -xzf ' + archivename + '.tar.gz && rm ' + archivename + '.tar.gz && '
+    for file, dest in zip(includefiles, includedests):
+        if dest != '':
+            remapcommand = remapcommand + 'mkdir -p ' + dest[2:] + ' && mv ' + file[2:] + ' ' + dest[2:] + ' && rmdir -p ' + file[2:file.rindex('/')] + ' --ignore-fail-on-non-empty && '
+    remapcommand = remapcommand + 'tar -czf ' + archivename + '.tar.gz * && mv ' + archivename + '.tar.gz ..'
+
+    statusoutput = commands.getstatusoutput(remapcommand)
+    if statusoutput[0] != 0:
+        print 'BUILD ERROR:'
+        print statusoutput[1]
+        sys.exit(statusoutput[0])
+    os.chdir('..')
+    statusoutput = commands.getstatusoutput('rm -rf ' + archivename)
+    if statusoutput[0] != 0:
+        print 'BUILD ERROR:'
+        print statusoutput[1]
+        sys.exit(statusoutput[0])
+
+    print 'BUILD-DIST: Created ' + archivename
+    print 'BUILD-DIST: Done'
+    return
+
+
+def clean_dist():
+    """\brief Cleans the archive directory of all previously build deploy archives
+    """
+    print 'CLEAN-DIST: Cleaning archives ...'
+
+    archives = commands.getoutput('ls archive').split()
+
+    for index in range(1, len(archives) + 1):
+        if archives[-index].find('blaze-') != -1 and archives[-index].find('.tar.gz') != -1:
+            statusoutput = commands.getstatusoutput('rm archive/' + archives[-index])
+            if statusoutput[0] != 0:
+                print 'CLEAN ERROR:'
+                print statusoutput[1]
+                sys.exit(statusoutput[0])
+            print 'CLEAN-DIST: Deleted ' + archives[-index]
+
+    statusoutput = commands.getstatusoutput('rmdir archive')
+    if statusoutput[0] != 0:
+        print 'CLEAN WARNING:'
+        print 'Archive directory is not empty so will not be removed'
+
+    print 'CLEAN-DIST: Done'
+    return
+
+
+def configure():
+    """\brief Not currently implemented.
+    """
+    print 'CONFIGURE: ...'
+    print 'CONFIGURE: Done\n'
+    return
+
+
+def dbmig():
+    """\brief Migrate the database to the current version.
+    
+    This command uses the dbmig.py to upgrade the database schemas to current version 
+    required for the blaze deploy to function.
+    """
+    print 'DBMIG: ...'
+    read_boot_config()
+    dbmigoptions = ' -d ' + dbclient + ' -r ~/' + dir + ' -o host=' + dbhost + ',user=' + dbuser + ',passwd=' + dbpassword + ',db=' + dbname
+    for dbinfo in databaseinfo:
+        dbmigcommand = dbmigoptions
+        dbinfo = dbinfo.split(':')
+        if len(dbinfo) > 1:
+            dbmigcommand = dbmigcommand + ' -V ' + dbinfo[1]
+        dbmigcommand = dbmigcommand + ' -c ' + dbinfo[0].split('/')[2] + ' --cpath ' + dbinfo[0][2:]
+        print 'dbmig/dbmig.py upgrade' + dbmigcommand
+        statusoutput = commands.getstatusoutput('dbmig/dbmig.py upgrade' + dbmigcommand)
+        if statusoutput[1].find('ERROR') != -1:
+            print statusoutput[1]
+            commands.getoutput('echo "' + statusoutput[1] + '" > dbmig.error')
+            print 'DBMIG: Failed\n'
+            sys.exit(statusoutput[0])
+
+    print 'DBMIG: Done\n'
+    return
+
+def generate_siren_config(cfgFile):
+    siren = ConfigParser.SafeConfigParser()
+    siren.add_section('DB')
+    siren.set('DB', 'HOST', 'test.oracle.ca')
+    siren.set('DB', 'USER', 'mlockhart')
+    siren.set('DB', 'PASSWORD', 'password')
+    
+    siren.add_section('DEPLOYMENT')
+    siren.set('DEPLOYMENT', 'HOST', 'cat.online.ea.com')
+    siren.set('DEPLOYMENT', 'SERVERS', 'MASTER')
+    
+    fileWriter = open(cfgFile, 'wb')
+    siren.write(fileWriter)
+
+
+def getServersRequiringAction():
+    global serversForDeployment, serversForShutdown, serversForStartup
+    
+    #clear the list so we get a fresh copy on each call
+    del serversForDeployment[:]
+    
+    configParser(serverconfig)
+    configMasterHost = configParsed.get('MASTER', 'CONFIG_MASTER_HOST').strip()
+
+    serversForStartup.append(configMasterHost)
+    serversForDeployment.append(configMasterHost)
+    serversForShutdown.append(configMasterHost)
+
+    serverList = configParsed.get('SLAVE', 'SLAVE_HOSTS').strip().split('\n')
+    for server in serverList:
+        if server != '':
+            if int(server.split('=')[1].strip()) > 0:
+                serversForStartup.append(server.split('=')[0].strip())
+                serversForDeployment.append(server.split('=')[0].strip())
+                serversForShutdown.append(server.split('=')[0].strip())
+            elif int(server.split('=')[1].strip()) < 0:
+                serversForShutdown.append(server.split('=')[0].strip())
+    #get aux servers
+    #determine if the auxiliary masters should be out of process or in process
+    #if they are in process then they will be deployed with the master, so no need
+    #to check where they should go
+    if not configParsed.getboolean('MASTER', 'IN_PROCESS_AUX_MASTERS'):
+        serverList = configParsed.get('MASTER', 'AUXILIARY_MASTER_HOSTS').strip().split('\n')
+        for server in serverList:
+            if not server == '':
+                auxServers = server.split('=')[1].strip().split(',')
+                if len(auxServers) > 1:
+                    serversForStartup.append(server.split('=')[0].strip())
+                    serversForDeployment .append(server.split('=')[0].strip())
+                    serversForShutdown.append(server.split('=')[0].strip())
+                elif len(auxServers) == 1:
+                    try:
+                        value = int(auxServers[0])
+                        if value == -1:
+                            serversForShutdown.append(server.split('=')[0].strip())
+                    except ValueError:
+                        serversForStartup.append(server.split('=')[0].strip())
+                        serversForDeployment .append(server.split('=')[0].strip())
+                        serversForShutdown.append(server.split('=')[0].strip())
+    
+    #Only need each server a single time, no multiples
+    serversForDeployment = list(set(serversForDeployment))
+    serversForStartup = list(set(serversForStartup))
+    serversForShutdown = list(set(serversForShutdown))
+    
+    #put configMaster host at the beginning of startup list
+    serversForDeployment.remove(configMasterHost)
+    serversForDeployment.append(configMasterHost)
+    serversForDeployment.reverse()
+
+def deploy(type):
+    """\brief Deploy the newest archive to the destination machine(s) and start the servers.
+    
+    This, though the heart of this script, merely copies deployment archive to the
+    necessary machines, and then calls deploy -setup on that machine (runs the setup() method
+    on the foreign machine)
+    """
+    global archive, servers
+    archives = commands.getoutput('ls archive').split()
+    deployarchive = ''
+    current = 0
+
+    for index in range(1, len(archives) + 1):
+        if archive != '' and archives[-index].find(archive) != -1:
+            deployarchive = archive
+            break
+        elif archives[-index].find('blaze-') != -1 and archives[-index].find('.tar.gz') != -1:
+            deployarchive = archives[-index]
+            break
+
+    print 'DEPLOY' + type.upper() + ': Deploying ' + deployarchive + ' ...\n'
+
+    if deployarchive == '':
+        print 'DEPLOY' + type.upper() + ' ERROR:'
+        print 'No deployable archives found'
+        sys.exit(-1)
+    
+    getServersRequiringAction()    
+    
+    # blaze-YYYYmmddTHHMMSS.tar
+    deploy_time = '-' + time.strftime('%Y%m%dT%H%M%S', time.gmtime())
+    
+    runDeployTests()
+        
+    for deployTarget in serversForDeployment:
+        statusoutput = commands.getstatusoutput('tar -czf - archive/' + deployarchive + ' | ssh -x ' + deployTarget + ' "mkdir /tmp/' + deployarchive[:-4] + ' && cd /tmp/' + deployarchive[:-4] + ' && tar -xzmf - && cd archive && tar -xzf ' + deployarchive + ' && cd ' + scriptdir + ' && ./deploy setup' + type + ' -e=' + env + ' -p=' + platform + ' -a=' + deployarchive + ' -d=' + dir + deploy_time + ' ' + ' '.join(sys.argv[2:]) + '"')
+    
+        if statusoutput[0] != 0:
+            print 'DEPLOY' + type.upper() + ' ERROR:'
+            print statusoutput[1]
+            print 'DEPLOY to ' + deployTarget + ' FAILED'
+            sys.exit(statusoutput[0])
+
+        print statusoutput[1]
+        print deployTarget + ':DEPLOY' + type.upper() + ': Done\n'
+    return
+
+def runDeployTests():
+    # check free space on all machines before deploying any servers
+    continueDeploy = True
+    for deployTaret in serversForDeployment:
+        print deployTaret
+        #availableSpace = long(commands.getoutput('ssh ' + deployTaret + ' "df --block-size=1048576 . | grep -v Filesystem"').split()[3])
+        #if availableSpace <= long(minFreeSpace):
+        #    print 'Not enough space available to deploy servers to ' + deployTaret
+        #    continueDeploy = False
+    if not continueDeploy:
+        print 'Abandoning deploy due to disk space issues'
+        sys.exit(-1)
+    else:
+        print 'Disk space on all systems looks good.  Proceeding with deploy.'
+        
+    
+
+def configParser(serverConfig):
+    """\brief Initialize the ConfigParser with the correct environment's config file.
+    @param serverConfig string that specifies the environment (TEST, DEV, PROD)
+    """
+    global configParsed
+    configParsed = ConfigParser.SafeConfigParser()
+    if configParsed.read(serverConfig) == []:
+        print 'No config file found.  There should be a file called server_' + env + '_' + \
+        platform + '.cfg in the /bin directory.  Exiting'
+        sys.exit(-1)
+
+def generate_monitor_external_cfg():
+    """\brief Create monitor's config file.
+    
+    This function creates the config file that the monitor uses to determine who to notify
+    if the server crashes, and how many restarts to attempt before giving up.  These values
+    are gotten from the boot file for the particular environment.
+    """
+    print 'GENERATE-MONITOR-EXTERNAL-CFG: ...'
+    print 'Creating config file for monitor-external script'
+
+    read_boot_config()
+
+    monitorcfgfile = open(monitorexternalcfg, 'w')
+
+    # Get monitor mail recipients from the base config file
+    monitorcfgfile.write('# Recipients of the notification mail\n')
+    monitorcfgfile.write('MAIL_RECIPIENTS = ' + monitorMail + '\n')
+    monitorcfgfile.write('\n')
+
+    monitorcfgfile.write('# Recipients of the notification mail\n')
+    monitorcfgfile.write('MAIL_NOT_RESTARTED_RECIPIENTS = ' + monitorNotRestartedMail + '\n')
+    monitorcfgfile.write('\n')
+
+    monitorcfgfile.write('# Name of sender to appear in mail notifications\n')
+    monitorcfgfile.write('MAIL_SENDER = ' + dir + '\n')
+    monitorcfgfile.write('\n')
+
+    monitorcfgfile.write('# Absolute path to the sendmail binary\n')
+    monitorcfgfile.write('SENDMAIL_PATH = /usr/sbin/sendmail\n')
+
+    monitorcfgfile.close()
+
+    print 'GENERATE-MONITOR-EXTERNAL-CFG: Done\n'
+
+def generate_configs():
+    """\brief Generate the deploy.env file for the server to read when starting up
+    
+    The deploy.env file is read by the server script on startup to determine certain values
+    that should not have to be passed to the script on startup.  Currently these are platform
+    and environment, but can include any information the server should know when starting up
+    and can be specified on deployment.  This file makes starting up the servers easier, at
+    the expense of complication during deployment.
+    """
+    if env == '' or platform == '':
+        print 'GENERATE ERROR: environment and platform must be specified'
+        sys.exit(-1)
+
+    # generate the platform.cfg file
+    cfgfile = open(os.path.expanduser('~/' + dir + '/etc/deploy.env'), 'w')
+    cfgfile.write('PLATFORM=' + platform + '\n')
+    cfgfile.write('ENV=' + env + '\n')
+    cfgfile.write('USER=' + user + '\n')
+    cfgfile.write('YEAR=' + year + '\n')
+    cfgfile.close()
+    return
+
+def info():
+    """\brief Not currently implemented.
+    """
+    print 'INFO: ...'
+    print 'INFO: Done\n'
+    return
+
+
+def invoke(command):
+    """\brief Execute a command on remote server
+    @param command Remote command to execute.
+    
+    This function executes the passed in command and executes it on the remote server.
+    The command is run as the deploy_user specified by command line or config file.
+    """
+    print 'INVOKE: executing ...'
+
+    if command == '':
+        print 'INVOKE ERROR:'
+        print 'command not specified'
+        sys.exit(-1)
+
+    if user != '':
+        statusoutput = commands.getstatusoutput('ssh ' + server + ' "sudo -H -u ' + user + 'cd ~' + user + '/' + dir + '/' + scriptdir + ' && sudo -H -u ' + user + ' ./deploy ' + command + '"')
+    else:
+        statusoutput = commands.getstatusoutput('ssh ' + server + ' "cd ' + dir + '/' + scriptdir + ' && ./deploy ' + command + '"')
+    if statusoutput[0] != 0:
+        print 'INVOKE REMOTE ERROR:'
+        print '"""'
+        print statusoutput[1]
+        print '"""'
+        sys.exit(statusoutput[0])
+
+    print statusoutput[1]
+    print 'INVOKE: Done\n'
+    return
+
+
+def mail():
+    """\brief Send mail message to list of subscribers.
+    
+    This function sends out notification emails to the list specified in the boot file.
+    """
+    global envconfig, sendnotification, deployMail
+
+    print 'MAIL: ...'
+
+    if sendnotification == 'false':
+        print 'SEND_NOTIFICATION set to false, not sending notification e-mail'
+        return
+
+    read_boot_config()
+
+    if deployMail == '':
+        print 'MAIL ERROR: Cannot find MONITOR_MAIL value in ' + envconfig + '. Deploy notification mail will not be sent.'
+        return
+
+    deployinfo = commands.getoutput('cd ../etc && export LD_LIBRARY_PATH=. && ../bin/blazeserver -v').split('\n');
+
+    msg = 'From: ' + dir + '@' + socket.gethostname() + '\n'
+    msg = msg + 'To: ' + deployMail + '\n'
+    msg = msg + 'Subject: ' + '[Blaze Server][Deploy] New Blaze server deployed to ' + socket.gethostname() + '\n'
+    msg = msg + '\n'
+    msg = msg + 'A new Blaze server has been deployed to ' + socket.gethostname() + ' on ' + time.strftime('%Y-%m-%d %H:%M:%S') + '\n\n'
+    for info in deployinfo:
+        msg = msg + info + '\n\n';
+
+    if os.path.exists('dbmig.error'):
+        msg = msg + 'WARNING: Server was not started due to a dbmig error during deploy. Error log is in bin/dbmig.error.'
+
+    print 'Sending out deploy notification e-mail...'
+    print 'Notification recipients: ' + deployMail
+
+    try:
+        server = smtplib.SMTP('localhost')
+        server.sendmail(dir + '@' + socket.gethostname(), deployMail, msg)
+        server.quit
+    except smtplib.SMTPException, socket.error:
+        print 'An error encountered while sending deploy e-mail'
+        print 'You can turn off deploy e-mailing altogether by setting SEND_NOTIFICATION to false in deploy.cfg'
+
+    print 'MAIL: Done\n'
+
+    return
+
+
+def read_config(configfile):
+    """\brief Parse config file for necessary deploy parameters.
+    @param configfile Name of file to parse for options.
+    
+    This function parses the deploy.cfg file for all the necessary configuration
+    options for the servers to be successfully deployed.
+    """
+    global envconfig, dir, servers, user, year
+    global includefiles, includedests, excludefiles, databaseinfo
+    global serverscript, serverconfig, generateconfigs, validationscript, minFreeSpace
+    global olddeploycount, staginguser, stagingdir
+    global monitorexternalcfg, sendnotification
+    global env
+
+    serversection = False
+    includesection = False
+    excludesection = False
+    databasesection = False
+    for option in open(configfile):
+        option = option.split()
+
+        # ignore comments
+        if len(option) == 0 or option[0] == '#':
+            serversection = includesection = excludesection = databasesection = False
+            continue
+        elif serversection == True:
+            servers.append(option[0])
+            continue
+        elif includesection == True:
+            includefiles.append('./' + option[0])
+            if len(option) == 1:
+                includedests.append('')
+            else:
+                includedests.append('./' + option[2])
+            continue
+        elif excludesection == True:
+            excludefiles.append('./' + option[0])
+            continue
+        elif databasesection == True:
+            databaseinfo.append('./' + option[0])
+            continue
+        if option[0] == 'DEPLOY_DIR:': 
+            if dirset == False:
+                dir = option[1]
+            else:
+                continue
+        elif option[0] == 'DEPLOY_SERVERS:':
+            serversection = True
+        elif option[0] == 'DEPLOY_USER:':
+            user = option[1]
+        elif option[0] == 'DEPLOY_YEAR:':
+            year = option[1]
+        elif option[0] == 'DEPLOY_INCLUDEFILES:':
+            includesection = True
+        elif option[0] == 'DEPLOY_EXCLUDEFILES:':
+            excludesection = True
+        elif option[0] == 'DEPLOY_DATABASEINFO:':
+            databasesection = True
+        elif option[0] == 'SERVER_SCRIPT:':
+            serverscript = option[1]
+        elif option[0] == 'SERVER_CONFIG:':
+            serverconfig = option[1]
+            serverconfig = serverconfig.replace('$ENV', env)
+            serverconfig = serverconfig.replace('$PLATFORM', platform)
+        elif option[0] == 'GENERATE_CONFIGS:':
+            generateconfigs = option[1]
+        elif option[0] == 'VALIDATION_SCRIPT:':
+            validationscript = option[1]
+        elif option[0] == 'OLD_DEPLOY_COUNT:':
+            olddeploycount = option[1]
+        elif option[0] == 'MINIMUM_FREE:':
+            minFreeSpace = option[1]
+        elif option[0] == 'STAGING_USER:':
+            staginguser = option[1]
+        elif option[0] == 'STAGING_FOLDER:':
+            stagingdir = option[1]
+        elif option[0] == 'MONITOR_EXTERNAL_CONFIG:':
+            monitorexternalcfg = option[1]
+        elif option[0] == 'SEND_NOTIFICATION:':
+            sendnotification = option[1]
+        else:
+            print 'READ ERROR: invalid option - ' + option[0]
+            sys.exit()
+
+def read_boot_config():
+    """\brief Parse the proper boot file for configuration information. 
+    
+    This function parses the environment specific boot file for all required information, including
+    database name and port, and who should be notified when the server starts up or crashes.
+    """
+    global dbname, dbhost, dbport, dbuser, dbpassword, dbclient, monitorMail, monitorNotRestartedMail, deployMail
+
+    dbname = ''
+    dbhost = ''
+    dbport = ''
+    dbuser = ''
+    dbpassword = ''
+    dbclient = ''
+    monitorMail = ''
+    monitorNotRestartedMail = ''
+    deployMail = ''
+
+    inDatabaseConfig = False
+    inDeployInfo = False
+    dbIndexSection = -1
+
+    for line in commands.getoutput('cd ~/' + dir + '/etc; ~/' + dir + '/bin/cfgtest -DBASE_PORT=\\"0\\" -DPLATFORM=\\"' + \
+                                   platform + '\\" -DMASTER -DSERVER_BOOT_FILE=\\"master.boot\\" ' + envconfig).split('\n'):
+        if line.find('databaseConnections =') != -1:
+            inDatabaseConfig = True
+        elif inDatabaseConfig == True:
+            if line.find(']') != -1:
+                inDatabaseConfig = False
+            elif line.find('{') != -1:
+                dbIndexSection += 1
+            elif dbIndexSection == 0:
+                line = line.split('=')
+                key = line[0].strip()
+                if key == 'database':
+                    dbname = line[1].strip().strip('",')
+                elif key == 'hostname':
+                    dbhost = line[1].strip().strip('",')
+                elif key == 'port':
+                    dbport = line[1].strip().strip('",')
+                elif key == 'username':
+                    dbuser = line[1].strip().strip('",')
+                elif key == 'password':
+                    dbpassword = line[1].strip().strip('",')
+                elif key == 'client':
+                    dbclient = line[1].strip().strip('",').lower()
+        elif line.find('deployInfo =') != -1:
+            inDeployInfo = True
+        elif inDeployInfo == True:
+            if line.find('}') != -1:
+                inDeployInfo = False
+            else:
+                line = line.split('=')
+                key = line[0].strip()
+                if key == 'monitorMail':
+                    monitorMail = line[1].strip().rstrip('"').lstrip('"')
+                elif key == 'monitorNotRestartedMail':
+                    monitorNotRestartedMail = line[1].strip().rstrip('"').lstrip('"')
+                elif key == 'deployMail':
+                    deployMail = line[1].strip().rstrip('"').lstrip('"')
+
+    if monitorMail == '':
+        print 'READ-BOOT-CONFIG: Cannot find monitorMail value in ' + envconfig
+
+def remove_old_deploys():
+    """\brief Removes old deploys from the destination server.
+    
+    This function, called after deploying a new server, removes older deploys that are taking
+    up disk space and should not longer be required.
+    """
+    if int(olddeploycount) > 0:
+        print 'REMOVE OLD DEPLOYS: ...'
+        print 'Target # of old deploys to remain in directory: ' + olddeploycount
+
+        # Get list of deployed directories in home directory, sorted by date modified
+        l = [(os.stat(i).st_mtime, i) for i in glob.glob(os.path.expanduser('~') + '/' + dir + '-*')]
+        l.sort()
+        l.reverse()
+        files = [i[1] for i in l]
+
+        maxcount = int(olddeploycount)
+        count = 0
+        removed = False
+
+        for f in files:
+            if count < maxcount:
+                count = count + 1
+                continue
+            else:
+                print 'Removing old deploy: ' + f
+                commands.getoutput('rm -rf ' + f)
+                removed = True
+                count = count + 1
+
+        if removed == False:
+            print 'No old deploys removed: # of old deploys less than ' + olddeploycount
+
+        print 'REMOVE OLD DEPLOYS: Done\n'
+
+def rollback():
+    """\brief Rollback the server to previous deployed version.
+    
+    This function runs on the remote machine, and stops the current version (presumably the
+    most recent deployed version) and changes the symlinks to point to the previuos version.  The
+    script then starts up the now current version.
+    """
+    print 'ROLLBACK: ...'
+    
+    command = ''
+    folders = commands.getoutput('ls ~' + user).split()
+    folders.reverse()
+    current = 0
+
+    while current < len(folders) and folders[current].find(dir) == -1:
+        current = current + 1
+
+    previous = current + 1
+
+    if previous < len(folders):
+        if folders[previous].find(dir) != -1:
+            command = './' + serverscript + ' stop && cd ../../ && rm -rf ' + folders[current] + ' && rm ' + dir + ' && ln -s ~/' + folders[previous] + ' ' + dir
+            command = command + ' && cd ' + dir + ' && rm linkforward && cd ' + scriptdir + ' && ./' + serverscript + ' start'
+
+            statusoutput = commands.getstatusoutput(command)
+            if statusoutput[0] != 0:
+                print 'ROLLBACK ERROR:'
+                print statusoutput[1]
+                sys.exit(statusoutput[0])
+
+            print statusoutput[1]
+        else:
+            current = -1
+    else:
+        current = -1
+
+    if current == -1:
+        print 'ROLLBACK ERROR:'
+        print 'No servers exist to rollback to'
+        sys.exit(0)
+
+    print 'ROLLBACK: Done\n'
+    return
+
+
+def setup(type):
+    """\brief Setup the freshly deployed server for running.
+    @param type Type of server being set-up.
+    
+    This function performs necessary setup steps necessary before the server can be started.
+    The function removes the archive directory and creates a new one (that will only contain
+    the proper files for this deploy), and stores the archived deployment in this directory.
+    It then checks some deploy parameters and will execute the setup2() function.
+    """
+    global user, env
+
+    command = 'rm ../' + archive + ' && '
+    function = 'setup2'
+
+    if env == 'staging':
+        function = 'staging'
+        user = staginguser
+        command = 'mkdir -p archive && cp ../' + archive + ' archive && ' + command
+    else:
+        found = False
+        # replace the DEFAULT CONFIG in the deploy script
+        for line in fileinput.FileInput('deploy',inplace=1):
+            if not found and 'DEFAULT_CONFIG' in line:
+                line = 'DEFAULT_CONFIG = \'' + config + '\'\n'
+                found = True
+            print line,
+
+    if user != '':
+        command = command + 'sudo -H -u ' + user + ' ./deploy ' + function + type + ' ' + ' '.join(sys.argv[2:])
+    else:
+        command = command + './deploy ' + function + type + ' ' + ' '.join(sys.argv[2:])
+
+    statusoutput = commands.getstatusoutput(command)
+    if statusoutput[0] != 0:
+        print 'SETUP ERROR:'
+        print statusoutput[1]
+        sys.exit(statusoutput[0])
+
+    print statusoutput[1]
+    # make sure to clean up the deploy files when there's a failure
+    commands.getstatusoutput('cd /tmp && rm -rf ' + archive[:-4])
+    return
+
+
+def setup2():
+    """\brief Finish the bulk of the setup required before the server can start successfully.
+    
+    This function completes the setup require before the server starts up.  This includes 
+    setting up symlinks for for the main server as well as for the previous deployment, and
+    calling this script with different parameters such as generate-configs, dbmig, mail,
+    remove-old, and finally start.
+    """
+    print 'SETUP: setting up ' + dir + ' ...\n'
+
+    command = ''
+    folders = commands.getoutput('ls ~' + user).split()
+    folders.reverse()
+    previous = 0
+
+    dir_no_date = dir[:dir.find('-')+1]
+
+    while previous < len(folders) and (folders[previous].find(dir_no_date) == -1 or folders[previous].find(dir_no_date) != 0):
+        previous = previous + 1
+
+    dir_no_date = dir_no_date[:-1]
+
+    if previous != len(folders):
+        command = 'cd ../../' + folders[previous] + '/' + scriptdir + ' && ./' + serverscript + ' stop --archive && cd .. && ln -s ~' + user + '/' + dir + ' linkforward && cd .. && rm ' + dir_no_date + ' && '
+        command = command + 'ln -s ~/' + dir + ' ' + dir_no_date + ' && cd ' + dir_no_date + ' && ln -s ~/' + folders[previous] + ' linkbackward && cd ' + scriptdir + ' && ./deploy generate-monitor-external-cfg ' + ' '.join(sys.argv[2:]) + ' && '
+    else:
+        command = 'cd ../.. && ln -s ~/' + dir + ' ' + dir_no_date + ' && cd ' + dir_no_date + '/' + scriptdir + ' && ./deploy generate-monitor-external-cfg ' + ' '.join(sys.argv[2:]) + ' && '
+    if generateconfigs == 'true':
+        command = command + './deploy generate-configs -e=' + env + ' -p=' + platform + ' && '
+    command = command + './deploy dbmig -e=' + env + ' -p=' + platform + ' && ./deploy mail ' + ' '.join(sys.argv[2:]) + ' && ./' + serverscript + ' stripConfigs -e=' + env + ' -p=' + platform + ' && ./' + serverscript + ' start'
+    command = 'mkdir -p ~/' + dir + '/log && cp -R .. ~/' + dir + ' && cd ~/' + dir + '/' + scriptdir + ' && ' + command + ' && ./deploy remove-old -p=' + platform
+
+    statusoutput = commands.getstatusoutput(command)
+    if statusoutput[0] != 0:
+        print 'ERROR:'
+        print statusoutput[1]
+        print 'SETUP: Failed\n'
+        sys.exit(statusoutput[0])
+    print statusoutput[1]
+
+    print 'SETUP: Done\n'
+    return
+
+
+def setup2_cfg():
+    """\brief Unknown functionality
+    
+    """
+    print 'SETUP-CFG: setting up ' + dir + ' ...'
+
+    command = ''
+    copycommand = ''
+    folders = commands.getoutput('ls ~' + user).split()
+    folders.reverse()
+    previous = 0
+
+    dir_no_date = dir[:dir.find('-')+1]
+
+    while previous < len(folders) and (folders[previous].find(dir_no_date) == -1 or folders[previous].find(dir_no_date) != 0):
+        previous = previous + 1
+
+    dir_no_date = dir_no_date[:-1]
+
+    if previous != len(folders):
+        command = 'cd ../../' + folders[previous] + '/' + scriptdir + ' && ./' + serverscript + ' stop --archive && cd .. && ln -s ~' + user + '/' + dir + ' linkforward && cd .. && rm ' + dir_no_date + ' && '
+        command = command + 'ln -s ~/' + dir + ' ' + dir_no_date + ' && cd ' + dir_no_date + ' && ln -s ~/' + folders[previous] + ' linkbackward && cd ' + scriptdir + ' && ./deploy generate-monitor-external-cfg ' + ' '.join(sys.argv[2:]) + ' && '
+        copycommand = 'cp -R ../bin ~/' + dir + ' && cp -R ../etc ~/' + dir
+    else:
+        command = 'cd ../.. && ln -s ~/' + dir + ' ' + dir_no_date + ' && cd ' + dir_no_date + '/' + scriptdir + ' && ./deploy generate-monitor-external-cfg ' + ' '.join(sys.argv[2:]) + ' && '
+        # no previous deploy so do a regular setup
+        copycommand = 'cp -R .. ~/' + dir
+    command = command + './deploy dbmig -e=' + env + ' -p=' + platform + ' && ./deploy mail ' + ' '.join(sys.argv[2:]) + ' && ./' + serverscript + ' start'
+    command = 'mkdir -p ~/' + dir + ' ~/' + dir + '/log && rm ../' + archive + ' && ' + copycommand + ' && cd ~/' + dir + '/' + scriptdir + ' && ' + command + '&& ./deploy remove-old -p=' + platform
+
+    statusoutput = commands.getstatusoutput(command)
+    if statusoutput[0] != 0:
+        print 'ERROR:'
+        print statusoutput[1]
+        print 'SETUP-CFG: Failed\n'
+        sys.exit(statusoutput[0])
+    print statusoutput[1]
+
+    print 'SETUP-CFG: Done\n'
+    return
+
+
+def staging():
+    """\brief Deploy to staging area for production control.
+    
+    This function does a simple deploy to the staging machine for production control to 
+    do automated deployments to production.
+    """
+    print 'STAGING: ...'
+
+    command = ''
+    folders = commands.getoutput('ls ~' + staginguser + '/' + stagingdir).split()
+    folders.reverse()
+    previous = 0
+
+    dir_no_date = dir[:dir.find('-')+1]
+
+    while previous < len(folders) and folders[previous].find(dir_no_date) == -1:
+        previous = previous + 1
+
+    dir_no_date = dir_no_date[:-1]
+
+    if previous != len(folders):
+        command = 'cd ../../' + folders[previous] + ' && ln -s ~/' + stagingdir + '/' + dir + ' linkforward && cd .. && rm ' + dir_no_date + ' && '
+        command = command + 'ln -s ~/' + stagingdir + '/' + dir + ' ' + dir_no_date + ' && cd ' + dir_no_date + ' && ln -s ~/' + stagingdir + '/' + folders[previous] + ' linkbackward'
+    else:
+        command = 'cd ../.. && ln -s ~/' + stagingdir + '/' + dir + ' ' + dir_no_date
+    command = 'mkdir -p ~/' + stagingdir + '/' + dir + ' && cp -R ../' + scriptdir + ' ~/' + stagingdir + '/' + dir + ' && cd ~/' + stagingdir + '/' + dir + '/' + scriptdir + ' && ' + command
+
+    statusoutput = commands.getstatusoutput(command)
+    if statusoutput[0] != 0:
+        print 'ERROR:'
+        print statusoutput[1]
+        print 'STAGING: Failed\n'
+        sys.exit(statusoutput[0])
+
+    print statusoutput[1]
+    print 'STAGING: Done\n'
+    return
+
+def allStop():
+    """\brief Stop all the server on all the hosts
+    
+    Connect to each host that has had servers deployed on it and call the server script with
+    'stop' as the argument.  This will shutdown the blaze servers for that host.
+    """
+    print 'All STOP: ...'
+    
+    servercommand = './' + serverscript + ' stop'
+    if archivelogs:
+        servercommand = servercommand + ' --archive'
+        
+    getServersRequiringAction()
+        
+    for serverToStop in serversForShutdown:
+        stopCommand = """ssh """ + serverToStop + """ 'sudo -H -u """ + user + """ sh -c "cd ~/""" + dir + """/bin/ && """ + servercommand + """"'"""
+        statusoutput = commands.getstatusoutput(stopCommand)
+        if statusoutput[0] != 0:
+            print 'ERROR:'
+            print statusoutput[1]
+            print 'ALL STOP ' + serverToStop + ': Failed\n'
+        print statusoutput[1]
+        
+    print 'ANSWERED ALL STOP: Done\n'
+    return
+
+def allStart():
+    """\brief Start all the server on all the hosts
+    
+    Connect to each host that has servers deployed on it and call the server script with
+    'start' as the argument.  This will startup the blaze servers for that host.
+    """
+    print 'All START: ...'
+    
+    servercommand = './' + serverscript + ' start'
+    if valgrind:
+        servercommand = servercommand + ' --valgrind'
+    if destructive:
+        servercommand = servercommand + ' --dbdestructive'
+        
+    getServersRequiringAction()
+        
+    for serverToStart in serversForStartup:
+        startCommand = """ssh """ + serverToStart + """ 'sudo -H -u """ + user + """ sh -c "cd ~/""" + dir + """/bin/ && """ + servercommand + """"'"""
+        statusoutput = commands.getstatusoutput(startCommand)
+        if statusoutput[0] != 0:
+            print 'ERROR:'
+            print statusoutput[1]
+            print 'ALL START ' + serverToStart + ': Failed\n'
+        print statusoutput[1]
+        
+    print 'ANSWERED ALL START: Done\n'
+    return
+
+def allReload():
+    """\brief Reload all the server on all the hosts
+    
+    Connect to each host that has servers deployed on it and call the server script with
+    'reload' as the argument.  This will reload the blaze servers for that host.
+    """
+    print 'All RELOAD: ...'
+    
+    servercommand = './' + serverscript + ' reload'
+        
+    getServersRequiringAction()
+        
+    for serverToReload in serversForStartup:
+        reloadCommand = """ssh """ + serverToReload + """ 'sudo -H -u """ + user + """ sh -c "cd ~/""" + dir + """/bin/ && """ + servercommand + """"'"""
+        statusoutput = commands.getstatusoutput(reloadCommand)
+        if statusoutput[0] != 0:
+            print 'ERROR:'
+            print statusoutput[1]
+            print 'ALL RELOAD ' + serverToReload + ': Failed\n'
+        print statusoutput[1]
+        
+    print 'ANSWERED ALL RELOAD: Done\n'
+    return
+
+def allRestart():
+    """\brief Restart all the server on all the hosts
+    
+    Call allStop and then allStart.  This is preferable to implementing an allRestart
+    similar to allStart and allStop because this allows us to change the which servers are
+    running servers on the fly by changing the server config file and issueing a restart.
+    This function will go to every box with servers that need to be shut down, stop them
+    and then connect to the boxes that need to be started back up and start them up, and
+    these are not necessarily identical hosts.
+    """
+    print 'All RESTART: ...'
+    
+    allStop()
+    allStart()
+        
+    print 'ANSWERED ALL RESTART: Done\n'
+    return
+
+def allRollback():
+    """\brief Rollback all the server on all the hosts
+    
+    Connect to each host that has servers deployed on it and call the deploy script with
+    'rollback' as the argument.  This will rollback the blaze servers for that host to
+    the previous version, and start-up the now current version.
+    """
+    print 'All ROLLBACK: ...'
+    
+    #must specify platform and environment because the deploy script does not read
+    #from the deploy.env to find out this information like the server script does
+    servercommand = './deploy rollback -p=' + platform + ' -e=' + env
+        
+    getServersRequiringAction()
+        
+    for serverToRollback in serversForStartup:
+        rollbackCommand = """ssh """ + serverToRollback + """ 'sudo -H -u """ + user + """ sh -c "cd ~/""" + dir + """/bin/ && """ + servercommand + """"'"""
+        statusoutput = commands.getstatusoutput(rollbackCommand)
+        if statusoutput[0] != 0:
+            print 'ERROR:'
+            print statusoutput[1]
+            print 'ALL ROLLBACK ' + serverToRollback + ': Failed\n'
+        print statusoutput[1]
+        
+    print 'ANSWERED ALL ROLLBACK: Done\n'
+    return
+
+def usage():
+    """\brief Print usage for calling deploy script.
+    """
+    print 'Usage: ./deploy <command> [options]'
+    print '\nCommands:'
+    print 'build-dist, clean-dist, clean-build, dbmig, deploy, deploy-cfg, info,'
+    print 'invoke, rollback, allReload, allRestart, allStart, allStop, allRollback'
+    print '\nOptions:'
+    print '-c=<command [for use with invoke]>, -e=<environment>, -p=<platform>'
+
+if len(sys.argv) < 2:
+    usage()
+    sys.exit()
+
+config = DEFAULT_CONFIG
+## \var config
+## Config file used for deployment of servers.  Script gets all needed information
+## from this script.
+
+dirset = False
+## \var dirset
+## Flag to check if the user passed the -d= option when calling the deploy script.
+
+for option in sys.argv[2:]:
+    if option.find('-a=') != -1:
+        archive = option[3:]
+    elif option.find('--archive') != -1:
+        archivelogs = True
+    elif option.find('-c=') != -1:
+        command = option[3:]
+    elif option.find('-d=') != -1:
+        dir = option[3:]
+        dirset = True
+    elif option.find('-e=') != -1:
+        env = option[3:]
+        envconfig = '../etc/env/' + env + '.boot'
+    elif option.find('--config=') != -1:
+        config = option[9:]
+    elif option.find('-p=') != -1:
+        platform = option[3:]
+    elif option.find('-s=') != -1:
+        server = option[3:]
+    elif option.find('-u=') != -1:
+        user = option[3:]
+    elif option.find('--valgrind') != -1:
+        valgrind = True
+    elif option.find('--dbdestructive') != -1:
+        destructive = True
+    elif option.find('--nocheck') != -1:
+        validationcheck = False
+    else:
+        usage()
+        sys.exit()
+
+read_config(config)
+
+# determine the platform to deploy for
+current = 0
+## \var current
+## Holds which platform the deploy script is being called to execute for.
+
+if dirset == False:
+    # dir needs to be dir.year.platform
+    dir = dir + '.' + year + '.' + platform
+
+if sys.argv[1] == 'build-dist':
+    build_dist()
+elif sys.argv[1] == 'clean-dist':
+    clean_dist()
+elif sys.argv[1] == 'clean-build':
+    clean_dist()
+    build_dist()
+elif sys.argv[1] == 'dbmig':
+    dbmig()
+elif sys.argv[1] == 'deploy':
+    deploy('')
+elif sys.argv[1] == 'deploy-cfg':
+    deploy('-cfg')
+elif sys.argv[1] == 'generate-monitor-external-cfg':
+    generate_monitor_external_cfg()
+elif sys.argv[1] == 'generate-configs':
+    generate_configs()
+elif sys.argv[1] == 'info':
+    info()
+elif sys.argv[1] == 'invoke':
+    if command == '':
+        print 'Usage Error: invoke requires -c=<command> to be specified\n'
+        usage()
+        sys.exit()
+    invoke(command)
+elif sys.argv[1] == 'mail':
+    mail()
+elif sys.argv[1] == 'remove-old':
+    remove_old_deploys()
+elif sys.argv[1] == 'rollback':
+    rollback()
+elif sys.argv[1] == 'setup':
+    setup('')
+elif sys.argv[1] == 'setup-cfg':
+    setup('-cfg')
+elif sys.argv[1] == 'setup2':
+    setup2()
+elif sys.argv[1] == 'setup2-cfg':
+    setup2_cfg()
+elif sys.argv[1] == 'staging':
+    staging()
+elif sys.argv[1] == 'allStop':
+    allStop()
+elif sys.argv[1] == 'allStart':
+    allStart()
+elif sys.argv[1] == 'allReload':
+    allReload()
+elif sys.argv[1] == 'allRestart':
+    allRestart()
+elif sys.argv[1] == 'allRollback':
+    allRollback()
+elif sys.argv[1] == 'generate-siren-cfg':
+    generate_siren_config('siren.cfg')
+else:
+    print 'Usage Error: invalid option ' + sys.argv[1] + ' specified\n'
+    usage()
+    sys.exit()

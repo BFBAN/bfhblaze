@@ -1,0 +1,134 @@
+#!/usr/bin/env python
+"""
+Simple log rotation script.  It is expected that logging is piped
+through this script.
+"""
+import sys, time, os, shutil, glob, re
+from optparse import OptionParser
+
+class LogOptionParser(OptionParser):
+    def print_usage_help(self):
+        self.print_help(sys.stderr)
+        sys.exit(1)
+
+def archive_logs():
+    global logdir, archivedir, prefix, maxage
+
+    """
+    Create archivedir if it does not exist
+    """
+    if not os.path.isdir(archivedir):
+        os.mkdir(archivedir)
+
+    """
+    Find all files that match <prefix>_*_<timestamp>.log
+    This will match only logs with timestamps
+    We want to ignore ones without, such as blaze_master.log
+    that have not been rotated yet
+    """
+    matchlog = '%s_*.log' % prefix
+    path = os.path.join(logdir, matchlog)
+    for log in glob.glob(path):
+        print log
+        if (re.search('\d{8}_\d{6}\.log$', log)):
+            os.popen('gzip %s' % log)
+
+    """
+    Find all files that match <prefix>_*.log.died
+    """
+    matchlog = '%s_*.log.died' % prefix
+    path = os.path.join(logdir, matchlog)
+    for log in glob.glob(path):
+        os.popen('gzip %s' % log)
+
+    """
+    Move compressed (i.e. archive) logs in logdir to archivedir
+    """
+    matchlog = '%s_*.log*.gz' % prefix
+    path = os.path.join(logdir, matchlog)
+    for log in glob.glob(path):
+        os.system('mv -f %s %s' % (log, archivedir))
+
+    """
+    Remove logs in archivedir older than maxage
+    """
+    matchlog = '%s_*.log*' % prefix
+    path = os.path.join(archivedir, matchlog)
+    curtime = time.time()
+    agesecs = maxage * 24 * 60 * 60
+    for log in glob.glob(path):
+        info = os.stat(log)
+        if (curtime - info.st_mtime) > agesecs:
+            os.remove(log)
+
+def open_log():
+    global logdir, prefix, linecount, LOG
+    logname = '%s.log' % prefix
+    logpath = os.path.join(logdir,logname)
+    if os.path.exists(logpath):
+        rotate_log()
+    LOG = open(logpath,'w')
+    linecount = 0
+
+def close_log():
+    global LOG
+    if LOG is not None:
+        LOG.flush()
+        LOG.close()
+
+def rotate_log():
+    global logdir, prefix, linecount, archivedir
+    curtime = time.strftime("%Y%m%d_%H%M%S", time.localtime())
+    oldname = os.path.join(logdir,'%s.log' % prefix)
+    arcname = os.path.join(archivedir,'%s_%s.log' % (prefix,curtime))
+    close_log()
+    shutil.move(oldname,arcname)
+
+def main(argv):
+    global logdir, prefix, maxlines, linecount, archivedir, LOG, maxage
+
+    if argv is None:
+        argv = sys.argv
+
+    usage = "usage: %prog [options]"
+    version = "1.0"
+    parser = LogOptionParser(usage=usage,version=version)
+    parser.add_option('--logdir',dest='logdir',help='Directory to pipe log to.')
+    parser.add_option('--archivedir',dest='archivedir',help='Directory to archive logs to.')
+    parser.add_option('--prefix',dest='prefix',help='Log prefix')
+    parser.add_option('--maxlines',dest='maxlines',type=int,help='Maximum number of log lines.')
+    parser.add_option('--maxage',dest='maxage',type=int,help='Max age of a archived log')
+    parser.add_option('--archive',dest='archive',action='store_true')
+
+
+    (options, args) = parser.parse_args(argv[1:])
+
+    logdir = options.logdir
+    prefix = options.prefix
+    maxlines = options.maxlines
+    archivedir = options.archivedir
+    maxage = options.maxage
+
+    if options.archive:
+        archive_logs()
+    else:
+        linecount = 0
+        LOG = None
+        if archivedir is None:
+            archivedir = logdir
+
+        open_log()
+        while 1:
+            line = sys.stdin.readline()
+            if not line:
+                break
+            LOG.write(line)
+            LOG.flush()
+            linecount += 1
+            if linecount >= maxlines:
+                rotate_log()
+                open_log()
+        close_log()
+
+if __name__ == '__main__':
+    main(sys.argv)
